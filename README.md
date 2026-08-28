@@ -57,7 +57,7 @@ question
   -> execute
   -> result verification                      (does this answer the question?)
   -> self-correction on failure (capped)       (diagnose + retry)
-  -> business-analysis formatting             (headline + evidence)
+  -> deterministic presentation               (format exact values, no rewrite)
   -> answer + SQL + data source
 ```
 
@@ -119,16 +119,17 @@ All numbers below are measured on the fixed 12-question set (model
 | Iteration 2 | Added read-only SQL validation (SELECT-only, single statement) | 91.7% (11/12) | No accuracy change; enforces the read-only safety guarantee. Kept for safety, not for score. |
 | Iteration 3 | Added result verification | 91.7% (11/12) | No accuracy change on this set: the agent was already right where it was confident. Kept; its value shows on failures, not on an already-correct set. |
 | Iteration 4 | Added self-correction loop (diagnose error, retry, capped) | 91.7% (11/12) | No accuracy change here. Only Q12 (the challenge case) remains wrong, and it is a *reasoning* gap, not an error the retry can fix. Kept. |
-| Iteration 5 | Added business-analysis output (prose answer) | 75.0% (9/12) | **Removed / revised.** Rephrasing into prose *dropped* the exact values on Q9 and Q10 that were previously correct. A quality feature that hurt measured accuracy. |
-| Iteration 6 | Same questions against the POS schema | it4: **91.7% (11/12)** | **Generalization confirmed.** Identical accuracy to ERP on a schema with different table/column names and no category table. |
-| Final | Best configuration = through Iteration 4 (no prose layer) | ERP 91.7%, POS 91.7% | Main contribution: schema-aware grounding + safety + verification, generalizing across schemas. |
+| Iteration 5a | Business-analysis output via **LLM rephrasing** of the answer | 75.0% (9/12) | **Removed.** Rephrasing into prose *dropped* the exact values on Q9 and Q10 that were previously correct. A quality feature that silently hurt correctness. |
+| Iteration 5b | Business presentation via a **deterministic formatter** that wraps the exact verified values in readable text | **91.7% (11/12)** | **Kept.** Human-friendly output with zero accuracy loss. Presentation formats around the verified value; it never replaces it. |
+| Iteration 6 | Same questions against the POS schema | **91.7% (11/12)** | **Generalization confirmed.** Identical accuracy to ERP on a schema with different table/column names and no category table. |
+| Final | Grounding + validation + verification + self-correction + deterministic presentation | ERP **91.7%**, POS **91.7%** | Main contribution: schema-aware grounding that generalizes across schemas, with human-readable output that preserves exact values. |
 
 ### Headline comparison
 
 | Runner | ERP accuracy | POS accuracy |
 |--------|:-----------:|:------------:|
 | Keyword baseline | 25.0% | 8.3% |
-| Schema-aware agent (it4) | 91.7% | 91.7% |
+| Final agent | 91.7% | 91.7% |
 
 **Main failure mode + hot take.** Two findings the evidence forced on us:
 
@@ -137,15 +138,15 @@ All numbers below are measured on the fixed 12-question set (model
    schema-aware agent holds 91.7% on both. A system that encodes one schema's
    structure breaks the moment the schema changes; one that reads the schema at
    runtime does not.
-2. *A "nicer output" step can silently lower correctness.* The business-analysis
-   layer rephrased verified answers into prose and dropped the exact figures on
-   two questions (Q9's customer list, Q10's -43.7%), taking accuracy from 91.7%
-   down to 75.0%. Lesson for building reliable agents: any step placed *after*
-   a verified result must preserve the verified value, format around it, never
-   replace it. We would re-add business framing only as an addition to the exact
-   answer, not a rewrite of it.
+2. *Never let a language model rewrite a verified answer.* An LLM
+   business-analysis layer rephrased verified results into prose and dropped the
+   exact figures on two questions (Q9's customer list, Q10's -43.7%), taking
+   accuracy from 91.7% to 75.0%. Replacing it with a **deterministic formatter**
+   that wraps the exact verified value in readable text restored 91.7% while
+   keeping the human-friendly output. The rule: a step placed *after* a verified
+   result must preserve that value and format around it, never regenerate it.
 
-The one case even the best config misses is Q12, the challenge case (three
+The one case even the final config misses is Q12, the challenge case (three
 consecutive months of decline while stock rises). The agent does not reliably
 express that multi-step temporal reasoning in a single SQL query, which points at
 the next iteration: query planning / decomposition for multi-step questions.

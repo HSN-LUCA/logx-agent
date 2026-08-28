@@ -61,6 +61,69 @@ def validate_read_only(sql):
     return stripped
 
 
+def _fmt_number(value):
+    """Format a number for humans without changing its value.
+
+    Integers print without a decimal; other numbers keep their exact value with
+    thousands separators. Non-numbers pass through as their string form.
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if f == int(f):
+        return f"{int(f):,}"
+    # Keep the exact value; group thousands, trim trailing zeros.
+    return f"{f:,}".rstrip("0").rstrip(".") if "." in f"{f}" else f"{f:,}"
+
+
+def present_result(df):
+    """Deterministically render a verified result dataframe as readable text.
+
+    Preserves exact values. Handles the shapes our questions produce:
+      * single scalar        -> "<column> is <value>."
+      * single row           -> "<colA>: <valA>; <colB>: <valB>."
+      * one label + one value column, multiple rows (ranking / breakdown)
+                             -> a numbered list "1. <label> - <value>"
+      * anything else        -> a compact table.
+    Always appends the full row count for transparency.
+    """
+    if df is None or len(df) == 0:
+        return "No matching data was found."
+
+    rows, cols = df.shape
+
+    # Single scalar answer.
+    if rows == 1 and cols == 1:
+        col = df.columns[0]
+        val = df.iloc[0, 0]
+        return f"{col.replace('_', ' ').capitalize()} is {_fmt_number(val)}."
+
+    # Single row, few columns: "col: value" pairs.
+    if rows == 1:
+        parts = [f"{c.replace('_', ' ')}: {_fmt_number(df.iloc[0][c])}" for c in df.columns]
+        return "; ".join(parts) + "."
+
+    # Ranking / breakdown: a label column + a single numeric value column.
+    if cols == 2:
+        label_col, value_col = df.columns[0], df.columns[1]
+        lines = [
+            f"{i + 1}. {df.iloc[i][label_col]} - {_fmt_number(df.iloc[i][value_col])}"
+            for i in range(rows)
+        ]
+        header = f"{rows} results, by {value_col.replace('_', ' ')}:"
+        return header + "\n" + "\n".join(lines)
+
+    # A single-column list of labels (e.g. distinct customers).
+    if cols == 1:
+        col = df.columns[0]
+        items = ", ".join(str(v) for v in df[col].tolist())
+        return f"{rows} {col.replace('_', ' ')}: {items}."
+
+    # Fallback: compact table, values unchanged.
+    return f"{rows} rows:\n" + df.to_string(index=False)
+
+
 class AnalystAgent:
     def __init__(
         self,
@@ -183,25 +246,20 @@ class AnalystAgent:
             return True, "verified"
         return False, verdict
 
-    # ---- Business analysis (Iteration 5) --------------------------------- #
+    # ---- Presentation layer (Iteration 5, deterministic) ----------------- #
     def format_answer(self, question, sql, df):
+        """Turn the VERIFIED result dataframe into human-friendly text.
+
+        This layer is deterministic on purpose: it formats the exact values that
+        were verified and never sends them back through an LLM to be rewritten.
+        A prose rewrite was tried earlier and it dropped exact figures/labels
+        (lowering accuracy), so presentation must preserve the verified value,
+        format around it, never replace it.
+        """
         if not self.use_business_analysis:
             # Plain: just stringify the result compactly.
             return df.to_string(index=False)
-
-        preview = df.head(20).to_string(index=False)
-        prompt = (
-            "Turn this SQL result into a concise business answer for a manager. "
-            "Lead with the key number or finding in one sentence, then at most a "
-            "few supporting lines. Do not invent data beyond the result.\n\n"
-            f"QUESTION: {question}\n"
-            f"RESULT:\n{preview}\n\n"
-            "Business answer:"
-        )
-        try:
-            return self._chat(prompt).strip()
-        except Exception:
-            return df.to_string(index=False)
+        return present_result(df)
 
     # ---- Orchestration --------------------------------------------------- #
     def query(self, question):
