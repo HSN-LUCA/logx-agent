@@ -1,0 +1,24 @@
+# AI Data Analyst Agent for Business Databases
+# Pinned to the versions used to produce the reported results.
+# Tested on Python 3.12.10.
+
+# --- Core: required to run the agent, databases and evaluation harness ---
+langchain==0.3.26
+langchain-openai==0.3.25
+langchain-experimental==0.3.4
+langchain-community==0.3.26
+openai==1.91.0
+SQLAlchemy==2.0.41
+pandas==2.3.0
+python-dotenv==1.0.0
+
+# --- UI: required only to run the Streamlit app (app.py) ---
+streamlit==1.46.0
+
+# --- Optional: SQL Server connectivity (not needed for the SQLite demo/eval) ---
+pyodbc==5.2.0
+
+# --- Optional: voice input / text-to-speech features in the UI ---
+gTTS==2.5.4
+SpeechRecognition==3.14.3
+streamlit-webrtc==0.63.3

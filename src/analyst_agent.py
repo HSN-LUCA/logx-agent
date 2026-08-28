@@ -1,0 +1,277 @@
+"""AI Data Analyst Agent for Business Databases.
+
+A schema-agnostic agent that answers natural-language questions about a business
+database. Capabilities are individually toggleable so each iteration in
+STRATEGY.md can be measured on its own with the shared evaluation harness.
+
+Pipeline (capabilities in brackets are optional and flag-controlled):
+
+    question
+      -> [schema discovery + business context]      (Iteration 1)
+      -> SQL generation (LLM)
+      -> [read-only validation]                     (Iteration 2)
+      -> execute
+      -> [result verification]                      (Iteration 3)
+      -> [self-correction on failure, capped]       (Iteration 4)
+      -> [business-analysis formatting]             (Iteration 5)
+      -> answer + evidence
+
+The LLM-dependent steps (SQL generation, and optionally verification/analysis)
+require an OpenAI API key. The deterministic steps (schema discovery, read-only
+validation, execution, structural verification) run without any API call and are
+independently testable.
+"""
+
+import os
+import re
+import time
+
+import pandas as pd
+from dotenv import load_dotenv
+
+from src.schema_tools import make_engine, discover_schema, render_schema_summary
+from src.business_context import render_business_context
+from paths import ERP_DB
+
+load_dotenv()
+
+# Statements that must never run against a business database (read-only guard).
+_FORBIDDEN = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE|ATTACH|PRAGMA)\b",
+    re.IGNORECASE,
+)
+
+
+class SQLValidationError(Exception):
+    pass
+
+
+def validate_read_only(sql):
+    """Iteration 2: reject anything that is not a single read-only SELECT."""
+    if not sql or not sql.strip():
+        raise SQLValidationError("empty SQL")
+    stripped = sql.strip().rstrip(";")
+    # Only one statement allowed.
+    if ";" in stripped:
+        raise SQLValidationError("multiple statements are not allowed")
+    if _FORBIDDEN.search(stripped):
+        raise SQLValidationError("only read-only SELECT queries are allowed")
+    if not re.match(r"^\s*(SELECT|WITH)\b", stripped, re.IGNORECASE):
+        raise SQLValidationError("query must start with SELECT or WITH")
+    return stripped
+
+
+class AnalystAgent:
+    def __init__(
+        self,
+        db_uri=ERP_DB,
+        schema_id="erp",
+        use_schema_context=True,
+        use_validation=True,
+        use_verification=True,
+        use_self_correction=True,
+        use_business_analysis=True,
+        max_retries=2,
+        llm=None,
+    ):
+        self.engine = make_engine(db_uri)
+        self.schema_id = schema_id
+        self.use_schema_context = use_schema_context
+        self.use_validation = use_validation
+        self.use_verification = use_verification
+        self.use_self_correction = use_self_correction
+        self.use_business_analysis = use_business_analysis
+        self.max_retries = max_retries
+
+        # Discover schema once at construction (cheap, no LLM).
+        self.schema = discover_schema(self.engine)
+        self.schema_summary = render_schema_summary(self.schema)
+        self.context_text = (
+            render_business_context(schema_id) if use_schema_context else ""
+        )
+
+        # LLM is injected for testability; built lazily from env if not provided.
+        self._llm = llm
+
+    # ---- LLM plumbing ---------------------------------------------------- #
+    @property
+    def llm(self):
+        if self._llm is None:
+            from langchain_openai import ChatOpenAI
+
+            self._llm = ChatOpenAI(
+                temperature=0,
+                model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+                openai_api_key=os.getenv("OPENAI_API_KEY"),
+            )
+        return self._llm
+
+    def _chat(self, prompt):
+        """Send a single prompt to the LLM and return raw text."""
+        resp = self.llm.invoke(prompt)
+        return getattr(resp, "content", str(resp))
+
+    # ---- SQL generation (Iteration 1 grounding) -------------------------- #
+    def _generation_prompt(self, question, prior_error=None):
+        parts = [
+            "You are a careful data analyst. Write ONE read-only SQL SELECT query "
+            "(SQLite dialect) that answers the user's question.",
+            "Return ONLY the SQL, with no explanation and no markdown fences.",
+            "",
+            "DATABASE SCHEMA:",
+            self.schema_summary,
+        ]
+        if self.context_text:
+            parts += ["", self.context_text]
+        if prior_error:
+            parts += [
+                "",
+                "Your previous attempt failed. Fix it.",
+                f"PROBLEM: {prior_error}",
+            ]
+        parts += ["", f"QUESTION: {question}", "", "SQL:"]
+        return "\n".join(parts)
+
+    @staticmethod
+    def _clean_sql(text):
+        """Strip markdown fences / stray prose the model may add."""
+        t = text.strip()
+        t = re.sub(r"^```(?:sql)?", "", t, flags=re.IGNORECASE).strip()
+        t = re.sub(r"```$", "", t).strip()
+        # Keep from the first SELECT/WITH onward.
+        m = re.search(r"(SELECT|WITH)\b", t, re.IGNORECASE)
+        return t[m.start():].strip() if m else t
+
+    def generate_sql(self, question, prior_error=None):
+        raw = self._chat(self._generation_prompt(question, prior_error))
+        return self._clean_sql(raw)
+
+    # ---- Execution ------------------------------------------------------- #
+    def execute_sql(self, sql):
+        return pd.read_sql(sql, self.engine)
+
+    # ---- Result verification (Iteration 3) ------------------------------- #
+    def verify_result(self, question, sql, df):
+        """Return (ok, reason). A deterministic structural check first; then an
+        optional LLM judgment for intent alignment."""
+        # Structural checks (no LLM).
+        if df is None:
+            return False, "no result returned"
+        if len(df) == 0:
+            return False, "query returned zero rows"
+
+        if not self.use_verification:
+            return True, "verification disabled"
+
+        # LLM intent check: does the result plausibly answer the question?
+        preview = df.head(10).to_string(index=False)
+        prompt = (
+            "You are verifying whether a SQL result answers a business question. "
+            "Answer strictly with 'YES' or 'NO: <short reason>'.\n\n"
+            f"QUESTION: {question}\n"
+            f"SQL: {sql}\n"
+            f"RESULT (up to 10 rows):\n{preview}\n\n"
+            "Does the result correctly and directly answer the question?"
+        )
+        try:
+            verdict = self._chat(prompt).strip()
+        except Exception as e:
+            # If the judge call fails, fall back to the structural pass.
+            return True, f"verifier unavailable ({e}); structural check passed"
+
+        if verdict.upper().startswith("YES"):
+            return True, "verified"
+        return False, verdict
+
+    # ---- Business analysis (Iteration 5) --------------------------------- #
+    def format_answer(self, question, sql, df):
+        if not self.use_business_analysis:
+            # Plain: just stringify the result compactly.
+            return df.to_string(index=False)
+
+        preview = df.head(20).to_string(index=False)
+        prompt = (
+            "Turn this SQL result into a concise business answer for a manager. "
+            "Lead with the key number or finding in one sentence, then at most a "
+            "few supporting lines. Do not invent data beyond the result.\n\n"
+            f"QUESTION: {question}\n"
+            f"RESULT:\n{preview}\n\n"
+            "Business answer:"
+        )
+        try:
+            return self._chat(prompt).strip()
+        except Exception:
+            return df.to_string(index=False)
+
+    # ---- Orchestration --------------------------------------------------- #
+    def query(self, question):
+        start = time.perf_counter()
+        attempts = 0
+        self_corrections = 0
+        prior_error = None
+        last_sql = None
+
+        max_attempts = (self.max_retries + 1) if self.use_self_correction else 1
+
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                sql = self.generate_sql(question, prior_error=prior_error)
+                last_sql = sql
+
+                if self.use_validation:
+                    sql = validate_read_only(sql)
+
+                df = self.execute_sql(sql)
+
+                ok, reason = self.verify_result(question, sql, df)
+                if not ok:
+                    prior_error = f"result check failed: {reason}"
+                    if self.use_self_correction and attempts < max_attempts:
+                        self_corrections += 1
+                        continue
+                    # Out of retries: return what we have, flagged.
+                    answer = self.format_answer(question, sql, df)
+                    return self._result(
+                        True, answer, sql, df, reason=prior_error,
+                        attempts=attempts, self_corrections=self_corrections,
+                        start=start, verified=False,
+                    )
+
+                answer = self.format_answer(question, sql, df)
+                return self._result(
+                    True, answer, sql, df, reason="ok",
+                    attempts=attempts, self_corrections=self_corrections,
+                    start=start, verified=True,
+                )
+
+            except Exception as e:
+                prior_error = str(e)
+                if self.use_self_correction and attempts < max_attempts:
+                    self_corrections += 1
+                    continue
+                return self._result(
+                    False, "Sorry, I couldn't answer that reliably.", last_sql,
+                    None, reason=prior_error, attempts=attempts,
+                    self_corrections=self_corrections, start=start, verified=False,
+                    error=prior_error,
+                )
+
+    def _result(self, success, answer, sql, df, reason, attempts,
+                self_corrections, start, verified, error=None):
+        return {
+            "success": success,
+            "answer": answer,
+            "sql_query": sql,
+            "chart_data": df,
+            "has_chart": df is not None and len(df) > 0,
+            "verified": verified,
+            "attempts": attempts,
+            "self_corrections": self_corrections,
+            "reason": reason,
+            "error": error,
+            "response_time_s": round(time.perf_counter() - start, 3),
+        }
+
+    def get_table_info(self):
+        return self.schema_summary

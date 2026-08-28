@@ -1,0 +1,31 @@
+# Environment variables / secrets
+.env
+*.env
+!.env.example
+.streamlit/secrets.toml
+
+# Generated databases (rebuild with data/erp_database.py / data/pos_database.py)
+*.db
+
+# Generated evaluation artifacts (rebuild with eval/ground_truth.py / eval/evaluate.py)
+ground_truth.json
+ground_truth_*.json
+results_*.json
+results_*.md
+
+# Python cache / build
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Uploaded assets
+logo.png
