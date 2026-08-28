@@ -203,10 +203,14 @@ ANALYST_PRESETS = {
     "it4": dict(use_schema_context=True, use_validation=True,
                 use_verification=True, use_self_correction=True,
                 use_business_analysis=False),
-    # Final: + Iteration 5 business-analysis output. The full agent.
+    # + Iteration 5 deterministic presentation output.
     "final": dict(use_schema_context=True, use_validation=True,
                   use_verification=True, use_self_correction=True,
                   use_business_analysis=True),
+    # + Iteration 7 query planning / decomposition for multi-step questions.
+    "planning": dict(use_schema_context=True, use_validation=True,
+                     use_verification=True, use_self_correction=True,
+                     use_business_analysis=True, use_query_planning=True),
 }
 
 
@@ -328,7 +332,7 @@ def main():
     )
     parser.add_argument(
         "--runner",
-        choices=["baseline", "llm_baseline", "it1", "it2", "it3", "it4", "final"],
+        choices=["baseline", "llm_baseline", "it1", "it2", "it3", "it4", "final", "planning"],
         default="baseline",
         help=(
             "baseline=keyword (no LLM); llm_baseline=plain LangChain chain; "

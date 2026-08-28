@@ -38,8 +38,9 @@ input and text-to-speech). That original app is the honest starting point.
   capabilities so each improvement can be measured on its own.
 - Runtime **schema discovery** (`src/schema_tools.py`) and **business context**
   (`src/business_context.py`) so the agent adapts to any supported schema.
-- A **read-only SQL guard**, an LLM **result-verification** step, and a
-  **self-correction** loop.
+- A **read-only SQL guard**, an LLM **result-verification** step, a
+  **self-correction** loop, and a **query planner** that decomposes multi-step
+  questions and computes their answers deterministically.
 - A reproducible **ERP database** (`data/erp_database.py`) and a structurally
   different **POS database** (`data/pos_database.py`) for the generalization test.
 - A fixed **evaluation set** with verified ground truth and an **automated scoring
@@ -51,14 +52,25 @@ input and text-to-speech). That original app is the honest starting point.
 
 ```
 question
-  -> schema discovery + business context      (adapt to this database)
-  -> SQL generation (LLM)
-  -> read-only validation                     (SELECT-only guard)
-  -> execute
-  -> result verification                      (does this answer the question?)
-  -> self-correction on failure (capped)       (diagnose + retry)
-  -> deterministic presentation               (format exact values, no rewrite)
-  -> answer + SQL + data source
+  -> query planner
+       |
+       |-- SIMPLE  -> the pipeline below
+       |
+       `-- COMPLEX -> ordered sub-questions
+                       -> each answered by the pipeline below
+                       -> verified data frames
+                       -> deterministic computation (Python, no LLM)
+                       -> final verified answer
+
+  simple pipeline:
+    schema discovery + business context      (adapt to this database)
+    -> SQL generation (LLM)
+    -> read-only validation                  (SELECT-only guard)
+    -> execute
+    -> result verification                    (does this answer the question?)
+    -> self-correction on failure (capped)     (diagnose + retry)
+    -> deterministic presentation             (format exact values, no rewrite)
+    -> answer + SQL + data source
 ```
 
 Each bracketed step is a flag on `AnalystAgent`, so the evaluation harness can run
@@ -122,14 +134,16 @@ All numbers below are measured on the fixed 12-question set (model
 | Iteration 5a | Business-analysis output via **LLM rephrasing** of the answer | 75.0% (9/12) | **Removed.** Rephrasing into prose *dropped* the exact values on Q9 and Q10 that were previously correct. A quality feature that silently hurt correctness. |
 | Iteration 5b | Business presentation via a **deterministic formatter** that wraps the exact verified values in readable text | **91.7% (11/12)** | **Kept.** Human-friendly output with zero accuracy loss. Presentation formats around the verified value; it never replaces it. |
 | Iteration 6 | Same questions against the POS schema | **91.7% (11/12)** | **Generalization confirmed.** Identical accuracy to ERP on a schema with different table/column names and no category table. |
-| Final | Grounding + validation + verification + self-correction + deterministic presentation | ERP **91.7%**, POS **91.7%** | Main contribution: schema-aware grounding that generalizes across schemas, with human-readable output that preserves exact values. |
+| Iteration 7 | Query planning: route multi-step questions to sub-queries + **deterministic** computation over verified data frames | **100% (12/12)** | **Kept.** Solved the challenge case (Q12). The single-query agent produced invalid window-function SQL; decomposing into simple sub-queries and computing the trend in Python fixes it with zero execution errors. |
+| Final | Grounding + validation + verification + self-correction + deterministic presentation + query planning | ERP **100%**, POS **100%** | Main contribution: schema-aware grounding that generalizes across schemas, human-readable output that preserves exact values, and decomposition for multi-step questions. |
 
 ### Headline comparison
 
 | Runner | ERP accuracy | POS accuracy |
 |--------|:-----------:|:------------:|
 | Keyword baseline | 25.0% | 8.3% |
-| Final agent | 91.7% | 91.7% |
+| Schema-aware agent (no planning) | 91.7% | 91.7% |
+| Final agent (with planning) | **100%** | **100%** |
 
 **Main failure mode + hot take.** Two findings the evidence forced on us:
 
@@ -145,11 +159,15 @@ All numbers below are measured on the fixed 12-question set (model
    that wraps the exact verified value in readable text restored 91.7% while
    keeping the human-friendly output. The rule: a step placed *after* a verified
    result must preserve that value and format around it, never regenerate it.
-
-The one case even the final config misses is Q12, the challenge case (three
-consecutive months of decline while stock rises). The agent does not reliably
-express that multi-step temporal reasoning in a single SQL query, which points at
-the next iteration: query planning / decomposition for multi-step questions.
+3. *Hard questions need decomposition, not a cleverer single query.* The
+   challenge case (Q12: three consecutive months of decline while stock rises)
+   was the only miss at 91.7%. The single-query agent kept producing invalid
+   `LAG()`-in-`HAVING` SQL that the database rejected, and self-correction could
+   not recover because every retry was another variant of the same over-complex
+   query. Routing it to a planner that asks two simple sub-questions (monthly
+   units, monthly stock) and computes the trend deterministically in Python
+   solved it and took the agent to 100% on both schemas. The same value-preserving
+   principle as (2): reason over verified data in code, not in the model.
 
 ---
 
@@ -162,6 +180,7 @@ the next iteration: query planning / decomposition for multi-step questions.
 | `src/analyst_agent.py` | The self-verifying, schema-agnostic agent (all iterations) |
 | `src/schema_tools.py` | Runtime schema discovery (tables, columns, keys, samples) |
 | `src/business_context.py` | Per-schema business glossary/notes |
+| `src/query_planner.py` | Decomposition patterns + deterministic computation for multi-step questions |
 | `src/ai_agent.py` | Original single-chain agent, used as the plain-LLM baseline |
 | `data/erp_database.py` / `data/pos_database.py` | Seeded, reproducible demo databases |
 | `eval/eval_questions.py` / `eval/eval_questions_pos.py` | The fixed question sets |

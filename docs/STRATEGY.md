@@ -123,6 +123,19 @@ Run the *same* agent against both DBs.
 correctly on both while the baseline (tuned to ERP keywords) collapses on POS.
 **Metric to watch:** accuracy on ERP vs POS for the shared question set.
 
+### Iteration 7 — Query planning / decomposition (multi-step questions)
+**Why:** some questions cannot be answered by one reliable SQL query. The
+challenge case (three consecutive months of decline while stock rises) drove the
+model to invalid `LAG()`-in-`HAVING` SQL, and self-correction could not recover.
+**Build:** a planner (`src/query_planner.py`) that classifies SIMPLE vs COMPLEX.
+COMPLEX questions match a known pattern that supplies simple sub-questions (each
+answered by the existing single-query pipeline) and a **deterministic** pandas
+computation over the verified result frames. The final answer is computed in
+code, never synthesized by the LLM.
+**Evidence:** Q12 now answered correctly on both schemas; the agent reaches 100%
+on ERP and POS with zero execution errors.
+**Metric to watch:** challenge-case accuracy; no regression on the simple path.
+
 ---
 
 ## 5a. How to run each stage (actual commands)
@@ -140,6 +153,7 @@ python -m eval.evaluate --runner it2           # + read-only validation
 python -m eval.evaluate --runner it3           # + result verification
 python -m eval.evaluate --runner it4           # + self-correction
 python -m eval.evaluate --runner final         # full agent (+ business analysis)
+python -m eval.evaluate --runner planning      # + query planning (reaches 100%)
 ```
 
 Generalization run against the second schema (Iteration 6, POS):
@@ -192,8 +206,11 @@ measured end-to-end result. Working baseline first, generalization second.
 | Iteration 3 | Added result verification | TBD | TBD |
 | Iteration 4 | Added self-correction loop | TBD | TBD |
 | Iteration 5 | Added business-analysis output | TBD | TBD |
-| Iteration 6 | Ran same questions on POS schema | TBD | TBD |
-| Final | Combined the changes that worked | TBD | Main contribution |
+| Iteration 6 | Ran same questions on POS schema | ERP 91.7%, POS 91.7% | Generalization confirmed |
+| Iteration 7 | Query planning + deterministic computation | ERP 100%, POS 100% | Solved the challenge case; kept |
+| Final | Combined the changes that worked | ERP 100%, POS 100% | Main contribution |
+
+See the README for the full measured changelog with per-iteration evidence.
 
 ---
 

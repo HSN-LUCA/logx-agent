@@ -134,6 +134,7 @@ class AnalystAgent:
         use_verification=True,
         use_self_correction=True,
         use_business_analysis=True,
+        use_query_planning=False,
         max_retries=2,
         llm=None,
     ):
@@ -144,6 +145,7 @@ class AnalystAgent:
         self.use_verification = use_verification
         self.use_self_correction = use_self_correction
         self.use_business_analysis = use_business_analysis
+        self.use_query_planning = use_query_planning
         self.max_retries = max_retries
 
         # Discover schema once at construction (cheap, no LLM).
@@ -261,9 +263,78 @@ class AnalystAgent:
             return df.to_string(index=False)
         return present_result(df)
 
+    # ---- Query planning (Iteration 7) ------------------------------------ #
+    def plan_query(self, question):
+        """Return ('simple', None) or ('complex', pattern).
+
+        Uses a cheap deterministic pattern detector. (An LLM classifier could be
+        added here, but the detector is precise for the known patterns and needs
+        no API call.) Only routes to COMPLEX when a known, hand-verified pattern
+        matches; everything else stays on the reliable simple path.
+        """
+        from src.query_planner import detect_pattern
+
+        pattern = detect_pattern(question)
+        if pattern is not None:
+            return "complex", pattern
+        return "simple", None
+
+    def _run_complex(self, question, pattern, start):
+        """Answer a COMPLEX question by decomposing into simple sub-queries and
+        computing the final answer deterministically over the verified frames."""
+        frames = {}
+        sub_attempts = 0
+        try:
+            for name, sub_question in pattern.subqueries(self.schema_id).items():
+                # Each sub-question rides the existing, reliable single-query path.
+                sub = self._run_simple(sub_question, time.perf_counter())
+                sub_attempts += sub.get("attempts", 1)
+                if not sub.get("success") or sub.get("chart_data") is None:
+                    return self._result(
+                        False, "Sorry, I couldn't answer that reliably.",
+                        sub.get("sql_query"), None,
+                        reason=f"sub-query '{name}' failed: {sub.get('reason')}",
+                        attempts=sub_attempts, self_corrections=0,
+                        start=start, verified=False, error=sub.get("error"),
+                    )
+                frames[name] = sub["chart_data"]
+
+            # Deterministic computation over verified data frames (no LLM).
+            answer_label, detail = pattern.compute(frames)
+            if answer_label is None:
+                return self._result(
+                    True, detail, None, None, reason="pattern found no match",
+                    attempts=sub_attempts, self_corrections=0,
+                    start=start, verified=False,
+                )
+
+            result_df = pd.DataFrame({"answer": [answer_label]})
+            answer = detail if self.use_business_analysis else str(answer_label)
+            return self._result(
+                True, answer, None, result_df, reason="ok (planned + deterministic)",
+                attempts=sub_attempts, self_corrections=0,
+                start=start, verified=True,
+            )
+        except Exception as e:
+            return self._result(
+                False, "Sorry, I couldn't answer that reliably.", None, None,
+                reason=str(e), attempts=sub_attempts, self_corrections=0,
+                start=start, verified=False, error=str(e),
+            )
+
     # ---- Orchestration --------------------------------------------------- #
     def query(self, question):
         start = time.perf_counter()
+
+        # Iteration 7: route complex, multi-step questions to the planner.
+        if self.use_query_planning:
+            route, pattern = self.plan_query(question)
+            if route == "complex":
+                return self._run_complex(question, pattern, start)
+
+        return self._run_simple(question, start)
+
+    def _run_simple(self, question, start):
         attempts = 0
         self_corrections = 0
         prior_error = None
