@@ -71,6 +71,50 @@ class GapReport:
 # --------------------------------------------------------------------------- #
 # Deterministic schema matching
 # --------------------------------------------------------------------------- #
+# Domain-general synonym groups. Business databases name the same concept
+# differently (a customer is a "shopper" in POS, an invoice is a "receipt").
+# When any term in a group is searched, all terms in the group are tried, so a
+# concept keyword like "customer" also matches a "shoppers" table. This is a
+# small, general business vocabulary -- NOT specific to any one capability.
+_SYNONYM_GROUPS = [
+    {"customer", "shopper", "client", "buyer", "account"},
+    {"invoice", "receipt", "transaction", "sale", "order", "bill"},
+    {"product", "item", "sku", "article", "goods"},
+    {"branch", "outlet", "store", "location", "shop"},
+    {"supplier", "vendor"},
+    {"category", "dept", "department", "class", "type"},
+    {"quantity", "qty", "units", "amount", "volume"},
+    {"stock", "inventory", "onhand"},
+    {"date", "time", "timestamp", "period", "day", "month"},
+    {"revenue", "amount", "total", "value", "price", "sales"},
+    {"status", "state", "flag", "lifecycle", "stage"},
+]
+
+# Very common words that must not be used as match terms (they would match too
+# much or nothing meaningful).
+_STOPWORDS = {
+    "record", "records", "history", "data", "information", "field", "fields",
+    "details", "id", "identifier", "the", "a", "an", "of", "and", "or", "per",
+    "value", "values", "list", "entity", "entities",
+}
+
+
+def _expand_terms(term):
+    """Return the term plus any synonyms from the vocabulary groups."""
+    t = term.lower().strip()
+    out = {t}
+    for group in _SYNONYM_GROUPS:
+        if t in group:
+            out |= group
+    return out
+
+
+def _tokenize_name(name):
+    """Split a concept name into meaningful lowercase tokens (drop stopwords)."""
+    raw = re.split(r"[^a-zA-Z]+", name.lower())
+    return [w for w in raw if w and w not in _STOPWORDS and len(w) > 2]
+
+
 def _schema_tokens(schema):
     """Flatten the discovered schema into a searchable list of (table, column,
     'table.column') tuples plus the table names themselves."""
@@ -82,21 +126,79 @@ def _schema_tokens(schema):
     return entries
 
 
-def _match_concept(concept, schema_entries):
-    """Deterministically decide whether a required concept is present in the
-    schema. A concept is available if any of its keywords appears as a substring
-    of a table or column name. Returns (available, evidence_list)."""
-    evidence = []
-    for kw in concept.keywords:
-        kw_l = kw.lower().strip()
-        if not kw_l:
+def _term_hits(term, schema_entries):
+    """Evidence labels where `term` (or a synonym) matches a table/column name."""
+    hits = []
+    for search in _expand_terms(term):
+        if len(search) <= 2 or search in _STOPWORDS:
             continue
         for table, column, label in schema_entries:
             target = (column or table).lower()
-            # word-ish containment either direction (handles plural/singular).
-            if kw_l in target or target in kw_l:
-                if label not in evidence:
-                    evidence.append(label)
+            if search in target or target in search:
+                if label not in hits:
+                    hits.append(label)
+    return hits
+
+
+# Generic entity nouns: they identify WHICH record a concept is about, but on
+# their own do not prove a specific ATTRIBUTE exists.
+_GENERIC_ENTITY_TERMS = {
+    "customer", "shopper", "client", "buyer", "account",
+    "product", "item", "sku",
+    "branch", "outlet", "store",
+    "supplier", "vendor",
+}
+
+# Attribute-signal words: when a concept is ABOUT one of these, a match on the
+# generic entity alone is not enough -- an attribute-specific term must match a
+# real column. This is what stops "Customer status field" from being marked
+# available just because a customer table exists, while still letting entity
+# concepts like "Customer records" or "Transaction history" match normally.
+# These are general business-data attribute words, not tied to any capability.
+_ATTRIBUTE_SIGNAL_TERMS = {
+    "status", "state", "flag", "lifecycle", "stage", "churn", "cancelled",
+    "active", "inactive", "activity", "delivery", "shipment", "performance",
+    "rating", "score",
+}
+
+
+def _match_concept(concept, schema_entries):
+    """Deterministically decide whether a required concept is present in the
+    schema. Search terms come from BOTH the LLM keyword hints and the concept
+    name tokens, each expanded through the domain-general synonym map.
+
+    Two match modes, chosen deterministically from the concept's own words:
+
+    * ATTRIBUTE concept (its name/keywords contain an attribute-signal word such
+      as 'status', 'flag', 'activity', 'delivery'): requires a match on an
+      attribute-specific term. A generic entity match alone is NOT enough. This
+      prevents claiming e.g. a churn/status field exists just because a customer
+      table exists.
+    * ENTITY concept (everything else, e.g. 'Customer records', 'Transaction
+      history'): any term match (including a generic entity, via synonyms) is
+      sufficient.
+
+    Availability is only ever asserted from actual schema evidence.
+    Returns (available, evidence)."""
+    kw_terms = {k.lower().strip() for k in concept.keywords if k and k.strip()}
+    name_terms = set(_tokenize_name(concept.name))
+    all_terms = kw_terms | name_terms
+
+    is_attribute_concept = bool(all_terms & _ATTRIBUTE_SIGNAL_TERMS)
+
+    if is_attribute_concept:
+        # Only the attribute-signal terms count as proof for this concept.
+        proof_terms = all_terms & _ATTRIBUTE_SIGNAL_TERMS
+    else:
+        # Entity/history concept: any term (generic or specific) is proof.
+        proof_terms = all_terms
+
+    evidence = []
+    for term in proof_terms:
+        for label in _term_hits(term, schema_entries):
+            if label not in evidence:
+                evidence.append(label)
+
     return (len(evidence) > 0, evidence)
 
 
@@ -152,11 +254,37 @@ class GapAnalyzer:
     def _required_concepts_prompt(self, capability):
         return (
             "You are a data architect. A business stakeholder asks whether a "
-            "database can support a capability. List the DATA CONCEPTS that such "
-            "a capability would REQUIRE in general -- do NOT look at or assume any "
-            "specific database. For each concept give 3-6 lowercase keyword hints "
-            "(column/table name fragments) that would indicate its presence, and "
-            "whether it is essential.\n"
+            "database can support a capability. Identify the underlying DATA "
+            "REQUIREMENTS: the kinds of business data a database would need to "
+            "STORE to support this capability.\n"
+            "\n"
+            "Each requirement must be a business DATA ENTITY or DATA ATTRIBUTE "
+            "(something that would appear as a table or column), for example: "
+            "'Customer records', 'Order/transaction history', 'Delivery dates', "
+            "'Product status field'.\n"
+            "\n"
+            "STRICT RULES:\n"
+            "- Do NOT use the question's action or context words as requirements. "
+            "Words like 'measure', 'track', 'calculate', 'analyze', 'support', "
+            "'ERP', 'system', 'database', 'report' are NOT data requirements.\n"
+            "- Do NOT restate the capability topic as a single word; express what "
+            "data it needs. (E.g. for 'churn', the requirements are things like "
+            "customer records, transaction/activity history, and a customer "
+            "status/lifecycle or churn-classification field -- not the word "
+            "'churn' by itself.)\n"
+            "- Do NOT look at or assume any specific database.\n"
+            "- Give 3-6 lowercase keyword hints per requirement that are plausible "
+            "TABLE or COLUMN name fragments (e.g. 'customer', 'invoice', 'status', "
+            "'order_date'), not English topic words.\n"
+            "\n"
+            "WORKED EXAMPLE (different domain, for shape only):\n"
+            "Capability: 'Can we measure employee attendance?'\n"
+            "[\n"
+            '  {"name": "Employee records", "keywords": ["employee", "staff", "person"], "essential": true},\n'
+            '  {"name": "Attendance/check-in events", "keywords": ["attendance", "check_in", "clock", "shift"], "essential": true},\n'
+            '  {"name": "Event timestamps", "keywords": ["date", "time", "timestamp"], "essential": true}\n'
+            "]\n"
+            "\n"
             "Return ONLY JSON: a list of objects with keys "
             '"name", "keywords" (list), "essential" (true/false). '
             "No markdown, no prose.\n\n"
