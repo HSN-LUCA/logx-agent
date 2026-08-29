@@ -50,6 +50,20 @@ GAP_EXAMPLES = [
     "Can we measure inventory turnover?",
 ]
 
+# Phrases that suggest a capability question (for a non-blocking hint only;
+# never used to auto-route). Purely a deterministic string check, no LLM.
+CAPABILITY_HINT_PHRASES = (
+    "can our", "can the system", "can the erp", "can we measure",
+    "can we track", "can we calculate", "does the database support",
+    "does the system support", "can we support", "is it possible to measure",
+    "can this database", "can it measure",
+)
+
+
+def looks_like_capability_question(text):
+    t = (text or "").lower()
+    return any(p in t for p in CAPABILITY_HINT_PHRASES)
+
 STATUS_STYLE = {
     SUPPORTED: ("#ecfdf5", "#a7f3d0", "#065f46"),
     PARTIALLY: ("#fffbeb", "#fde68a", "#92400e"),
@@ -102,6 +116,23 @@ def inject_css():
         .trust-pill {
             display:inline-block; background:#f3f4f6; border:1px solid #e5e7eb;
             border-radius:999px; padding:3px 10px; font-size:0.78rem; margin-right:6px;
+        }
+        /* Mode selector styled as an obvious segmented control. */
+        div[role="radiogroup"] {
+            display:flex; gap:0; border:1px solid #d1d5db; border-radius:10px;
+            overflow:hidden; width:fit-content; margin-bottom:12px;
+        }
+        div[role="radiogroup"] label {
+            margin:0 !important; padding:8px 22px; cursor:pointer;
+            background:#f9fafb; border-right:1px solid #e5e7eb;
+            font-weight:600; color:#6b7280;
+        }
+        div[role="radiogroup"] label:last-child { border-right:none; }
+        /* Hide the little radio circle; the whole segment is the control. */
+        div[role="radiogroup"] label > div:first-child { display:none; }
+        /* Highlight the checked segment. */
+        div[role="radiogroup"] label:has(input:checked) {
+            background:#2563eb; color:#ffffff;
         }
         </style>
         """,
@@ -622,7 +653,8 @@ def main():
             return
 
         mode = st.radio("Mode", ["Data Analysis", "Gap Analysis"],
-                        horizontal=True, label_visibility="collapsed")
+                        horizontal=True, label_visibility="collapsed",
+                        key="mode")
 
         if mode == "Data Analysis":
             st.markdown("#### Try a sample question")
@@ -639,6 +671,11 @@ def main():
             user_q = st.text_input("Question", key="user_input",
                                    label_visibility="collapsed",
                                    placeholder="e.g. What are the top 3 products by revenue?")
+            # Non-blocking hint: never reroutes, just suggests the other mode.
+            if user_q and looks_like_capability_question(user_q):
+                st.info("This looks like a business capability question. "
+                        "Consider switching to **Gap Analysis** for a schema-grounded "
+                        "capability assessment.")
             if st.button("Analyze", type="primary") and user_q:
                 process_question(user_q)
 
