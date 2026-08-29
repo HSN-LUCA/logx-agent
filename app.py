@@ -1,200 +1,411 @@
 """Streamlit UI for the AI Data Analyst Agent for Business Databases.
 
-Wraps the schema-agnostic AnalystAgent. The UI surfaces the features that make
-this more than a text-to-SQL chatbot: the schema it discovered, whether the
-result was verified, how many self-corrections it took, the SQL it ran, and the
-result data as evidence.
+A business-facing console that surfaces what makes this more than a text-to-SQL
+chatbot: the schema it discovered, whether the result was verified, how it
+planned complex questions, and the SQL + data as evidence.
+
+The OpenAI key is read from the environment (.env locally) or Streamlit secrets
+(on Community Cloud). There is deliberately no API-key input in the UI.
 """
 
 import os
+import re
 
+import pandas as pd
 import streamlit as st
 
 from src.analyst_agent import AnalystAgent
 from paths import ERP_DB, POS_DB
 
-# Available demo schemas -> (database path, business-context id, builder module).
+# --- schema registry -------------------------------------------------------- #
 SCHEMAS = {
-    "ERP (invoices / branches / customers)": {
-        "db": ERP_DB,
-        "schema_id": "erp",
-        "builder": "data.erp_database",
-    },
-    "POS (receipts / outlets / shoppers)": {
-        "db": POS_DB,
-        "schema_id": "pos",
-        "builder": "data.pos_database",
-    },
+    "ERP Database": {"db": ERP_DB, "schema_id": "erp", "builder": "data.erp_database"},
+    "POS Database": {"db": POS_DB, "schema_id": "pos", "builder": "data.pos_database"},
 }
 
 SAMPLE_QUESTIONS = [
-    "What was the total sales revenue in July 2026?",
-    "What are the top 3 products by total revenue?",
-    "Which branch had the highest revenue growth from June to July 2026?",
-    "How much revenue came from Corporate versus Retail customers?",
-    "Which product had declining sales for three months while stock rose?",
+    {"q": "What was the total sales revenue in July 2026?", "complex": False},
+    {"q": "What are the top 3 products by total revenue?", "complex": False},
+    {"q": "Which branch had the highest revenue growth from June to July 2026?", "complex": False},
+    {"q": "How much revenue came from Corporate versus Retail customers?", "complex": False},
+    {"q": "Which product had declining sales for three months while stock rose?", "complex": True},
 ]
+
+CAPABILITIES = [
+    "Schema Discovery",
+    "Read-only SQL",
+    "Result Verification",
+    "Self-Correction",
+    "Query Planning",
+]
+
+# Column-name tokens that indicate a monetary value (AED). We only format as
+# currency when the column name clearly means money; otherwise we leave numbers
+# unformatted rather than risk mislabeling a non-currency figure.
+MONEY_TOKENS = ("revenue", "amount", "line_total", "sales", "value")
+# Tokens that look monetary but are not (avoid false positives).
+NON_MONEY_EXACT = {"units", "quantity", "count", "n", "stock", "units_on_hand", "pct_change"}
 
 st.set_page_config(page_title="AI Data Analyst Agent", page_icon="📊", layout="wide")
 
-# ---- session state ---------------------------------------------------------- #
-if "agent" not in st.session_state:
-    st.session_state.agent = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+
+# --- styling (Part C) ------------------------------------------------------- #
+def inject_css():
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 2rem; }
+        .cap-row { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:0.92rem; }
+        .cap-dot { color:#16a34a; font-weight:700; }
+        .status-dot { color:#16a34a; font-weight:700; }
+        .verified-banner {
+            background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px;
+            padding:14px 16px; margin-bottom:14px;
+        }
+        .verified-banner .title { font-weight:700; color:#065f46; font-size:1.05rem; }
+        .verified-banner .sub { color:#047857; font-size:0.86rem; }
+        .unverified-banner {
+            background:#fffbeb; border:1px solid #fde68a; border-radius:10px;
+            padding:14px 16px; margin-bottom:14px;
+        }
+        .badge-complex {
+            display:inline-block; background:#eef2ff; color:#4338ca;
+            font-size:0.66rem; font-weight:700; letter-spacing:0.04em;
+            padding:2px 8px; border-radius:6px; margin-top:6px;
+        }
+        .metric-card {
+            border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; text-align:center;
+            background:#ffffff;
+        }
+        .metric-card .label { font-size:0.66rem; letter-spacing:0.05em; color:#6b7280; text-transform:uppercase; }
+        .metric-card .value { font-size:1.15rem; font-weight:700; color:#111827; margin-top:2px; }
+        .workflow-step { font-size:0.9rem; margin:3px 0; color:#374151; }
+        .workflow-step .ok { color:#16a34a; font-weight:700; }
+        .trust-pill {
+            display:inline-block; background:#f3f4f6; border:1px solid #e5e7eb;
+            border-radius:999px; padding:3px 10px; font-size:0.78rem; margin-right:6px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# --- helpers ---------------------------------------------------------------- #
+def resolve_api_key():
+    key = os.getenv("OPENAI_API_KEY", "")
+    if not key:
+        try:
+            key = st.secrets.get("OPENAI_API_KEY", "")
+        except Exception:
+            key = ""
+    return key
 
 
 def ensure_database(builder_module, db_path):
-    """Build the demo database if it does not exist yet."""
     if os.path.exists(db_path):
         return
     import importlib
 
     mod = importlib.import_module(builder_module)
-    # Both builders expose create_<name>_database().
     for fn_name in ("create_erp_database", "create_pos_database"):
         if hasattr(mod, fn_name):
             getattr(mod, fn_name)()
             return
 
 
-def build_agent(schema_choice, flags):
-    cfg = SCHEMAS[schema_choice]
+def get_agent(schema_label):
+    """Build (and cache) the agent for the selected schema. Full pipeline on."""
+    cfg = SCHEMAS[schema_label]
     ensure_database(cfg["builder"], cfg["db"])
-    return AnalystAgent(db_uri=cfg["db"], schema_id=cfg["schema_id"], **flags)
+    return AnalystAgent(
+        db_uri=cfg["db"], schema_id=cfg["schema_id"],
+        use_schema_context=True, use_validation=True, use_verification=True,
+        use_self_correction=True, use_business_analysis=True, use_query_planning=True,
+    )
 
 
-def render_response(question, resp):
-    """Render one agent response with its verification evidence."""
-    if resp.get("success"):
-        if resp.get("verified"):
-            st.success("Verified — the result was checked against the question.")
-        else:
-            st.warning(f"Not fully verified: {resp.get('reason')}")
+def prettify_col(name):
+    special = {
+        "product_name": "Product", "customer_name": "Customer",
+        "category_name": "Category", "branch_name": "Branch",
+        "store_name": "Store", "shopper_name": "Customer",
+        "total_revenue": "Total Revenue (AED)", "revenue": "Revenue (AED)",
+        "pct_change": "Change (%)", "units": "Units", "dept": "Category",
+        "segment": "Segment", "title": "Product",
+    }
+    if name in special:
+        return special[name]
+    return name.replace("_", " ").title()
 
-        st.markdown(f"**Q:** {question}")
-        st.markdown(f"**A:** {resp.get('answer')}")
 
-        cols = st.columns(3)
-        cols[0].metric("Verified", "Yes" if resp.get("verified") else "No")
-        cols[1].metric("Attempts", resp.get("attempts", 1))
-        cols[2].metric("Self-corrections", resp.get("self_corrections", 0))
+def is_money_col(name):
+    n = name.lower()
+    if n in NON_MONEY_EXACT:
+        return False
+    return any(tok in n for tok in MONEY_TOKENS)
 
-        if resp.get("sql_query"):
-            with st.expander("SQL executed (evidence)", expanded=False):
-                st.code(resp["sql_query"], language="sql")
-        df = resp.get("chart_data")
-        if df is not None and len(df) > 0:
-            with st.expander("Result data", expanded=False):
-                st.dataframe(df, use_container_width=True)
+
+def fmt_value(col, v):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if is_money_col(col):
+            if float(v) == int(v):
+                return f"AED {int(v):,}"
+            return f"AED {v:,.2f}"
+        # Plain number, exact.
+        if float(v) == int(v):
+            return f"{int(v):,}"
+        return f"{v:,}"
+    return v
+
+
+def render_table(df):
+    """Render a result dataframe as a prettified, value-preserving table."""
+    display = df.copy()
+    # Format cells then rename columns for display.
+    for col in display.columns:
+        display[col] = display[col].map(lambda v, c=col: fmt_value(c, v))
+    display.columns = [prettify_col(c) for c in display.columns]
+    # Add a Rank column for multi-row ranking-style results.
+    if len(display) > 1:
+        display.insert(0, "Rank", range(1, len(display) + 1))
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def answer_heading(question):
+    q = question.lower()
+    if "top" in q and "product" in q:
+        return "Top Products by Revenue"
+    if "revenue" in q and ("corporate" in q or "retail" in q or "segment" in q):
+        return "Revenue by Customer Segment"
+    if "branch" in q or "store" in q:
+        return "Branch Performance"
+    if "category" in q:
+        return "Revenue by Category"
+    return "Answer"
+
+
+def render_workflow(workflow):
+    st.markdown("**Agent Execution Workflow**")
+    for step in workflow:
+        st.markdown(f"<div class='workflow-step'><span class='ok'>✓</span> {step}</div>",
+                    unsafe_allow_html=True)
+
+
+def metric_card(label, value):
+    st.markdown(
+        f"<div class='metric-card'><div class='label'>{label}</div>"
+        f"<div class='value'>{value}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+# --- response rendering ----------------------------------------------------- #
+def render_response(question, resp, schema_label):
+    if not resp.get("success"):
+        st.markdown("<div class='unverified-banner'><span class='title'>Could not "
+                    "answer reliably</span></div>", unsafe_allow_html=True)
+        st.error(resp.get("error") or resp.get("reason") or "Unknown error.")
+        return
+
+    is_complex = resp.get("query_type") == "complex"
+    verified = resp.get("verified")
+
+    # Verified banner.
+    if verified:
+        st.markdown(
+            "<div class='verified-banner'><span class='title'>✓ Verified Answer</span>"
+            "<br><span class='sub'>The result was checked against the question.</span></div>",
+            unsafe_allow_html=True,
+        )
     else:
-        st.error(f"**Q:** {question}")
-        st.error(resp.get("answer") or resp.get("error") or "Failed to answer.")
+        st.markdown(
+            f"<div class='unverified-banner'><span class='title'>Answer (not fully "
+            f"verified)</span><br><span class='sub'>{resp.get('reason')}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    left, right = st.columns([2, 1])
+
+    with left:
+        df = resp.get("chart_data")
+        if is_complex:
+            # Complex: highlight the answer + business explanation.
+            st.markdown(f"### {resp.get('answer').split(' had ')[0] if ' had ' in str(resp.get('answer')) else 'Result'}")
+            st.write(resp.get("answer"))
+        elif df is not None and len(df) > 0 and not (df.shape == (1, 1)):
+            st.markdown(f"### {answer_heading(question)}")
+            render_table(df)
+        else:
+            # Single scalar / short answer.
+            st.markdown("### Result")
+            st.write(resp.get("answer"))
+
+    with right:
+        render_workflow(resp.get("workflow", []))
+        qt = "Complex Query" if is_complex else "Simple Query"
+        st.markdown(f"<div class='trust-pill'>Query type: {qt}</div>", unsafe_allow_html=True)
+
+    # Metric cards.
+    st.write("")
+    cards = [
+        ("Database", schema_label.replace(" Database", "")),
+        ("Query Type", "Complex" if is_complex else "Simple"),
+        ("Steps", resp.get("steps", 1)),
+        ("Attempts", resp.get("attempts", 1)),
+        ("Self-Corrections", resp.get("self_corrections", 0)),
+        ("Execution Time", f"{resp.get('response_time_s', 0)}s"),
+    ]
+    cols = st.columns(len(cards))
+    for c, (label, value) in zip(cols, cards):
+        with c:
+            metric_card(label, value)
+
+    # Trust pills.
+    st.write("")
+    st.markdown(
+        "<span class='trust-pill'>🔒 Read-only</span>"
+        + ("<span class='trust-pill'>✓ Results verified</span>" if verified else ""),
+        unsafe_allow_html=True,
+    )
+
+    # Evidence (collapsible).
+    if is_complex and resp.get("intermediate_frames"):
+        with st.expander("Query Plan (sub-queries + deterministic analysis)"):
+            st.write(f"This complex question was decomposed into {resp.get('steps')} "
+                     "sub-queries; the final answer was computed deterministically "
+                     "from the verified data (no LLM rewriting).")
+            for name, frame in resp["intermediate_frames"].items():
+                st.markdown(f"**Sub-query: {name}**")
+                st.dataframe(frame.head(20), use_container_width=True, hide_index=True)
+
+    if resp.get("sql_query"):
+        with st.expander("SQL Executed (evidence)"):
+            st.code(resp["sql_query"], language="sql")
+
+    df = resp.get("chart_data")
+    if df is not None and len(df) > 0:
+        with st.expander("Result Data"):
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+# --- app -------------------------------------------------------------------- #
 def process_question(question):
-    with st.spinner("Analyzing, generating SQL, verifying result..."):
+    with st.spinner("Analyzing, planning, generating SQL, verifying result..."):
         resp = st.session_state.agent.query(question)
-        st.session_state.chat_history.append((question, resp))
+        st.session_state.chat_history.append(
+            (question, resp, st.session_state.schema_label)
+        )
 
 
 def main():
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=90)
-        else:
-            st.write("📊")
-    with col2:
-        st.title("AI Data Analyst Agent")
-        st.caption("Ask business questions in plain language. The agent discovers "
-                   "the schema, writes SQL, verifies the result, and shows its evidence.")
+    inject_css()
 
-    tab_chat, tab_history = st.tabs(["Ask", "History"])
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    if "agent" not in st.session_state:
+        st.session_state.agent = None
+    if "schema_label" not in st.session_state:
+        st.session_state.schema_label = None
 
+    api_key = resolve_api_key()
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+
+    # ---- sidebar ----------------------------------------------------------- #
     with st.sidebar:
-        st.header("Configuration")
+        st.markdown("### ✦ AI Data Analyst")
 
-        schema_choice = st.selectbox("Database", list(SCHEMAS.keys()))
+        st.markdown("**DATABASE**")
+        schema_label = st.selectbox("Database", list(SCHEMAS.keys()),
+                                    label_visibility="collapsed")
 
-        # Resolve a default key from env (.env locally) or Streamlit secrets
-        # (Streamlit Community Cloud). The user can still override it here.
-        default_key = os.getenv("OPENAI_API_KEY", "")
-        if not default_key:
+        # (Re)build the agent when the schema changes.
+        if st.session_state.schema_label != schema_label:
             try:
-                default_key = st.secrets.get("OPENAI_API_KEY", "")
-            except Exception:
-                default_key = ""
-
-        api_key = st.text_input(
-            "OpenAI API Key", type="password",
-            value=default_key,
-            help="Needed for SQL generation, verification and analysis. "
-                 "On Streamlit Cloud, set it in the app's Secrets instead.",
-        )
-        if api_key:
-            os.environ["OPENAI_API_KEY"] = api_key
-
-        st.subheader("Agent capabilities")
-        use_schema_context = st.checkbox("Schema discovery + business context", value=True)
-        use_validation = st.checkbox("Read-only SQL validation", value=True)
-        use_verification = st.checkbox("Result verification", value=True)
-        use_self_correction = st.checkbox("Self-correction", value=True)
-        use_business_analysis = st.checkbox("Business-analysis output", value=True)
-
-        flags = dict(
-            use_schema_context=use_schema_context,
-            use_validation=use_validation,
-            use_verification=use_verification,
-            use_self_correction=use_self_correction,
-            use_business_analysis=use_business_analysis,
-        )
-
-        if st.button("Initialize / Update Agent"):
-            if not api_key:
-                st.warning("Enter an API key to run queries (schema preview works without one).")
-            try:
-                st.session_state.agent = build_agent(schema_choice, flags)
-                st.success("Agent ready.")
+                st.session_state.agent = get_agent(schema_label)
+                st.session_state.schema_label = schema_label
             except Exception as e:
+                st.session_state.agent = None
                 st.error(f"Could not initialize agent: {e}")
 
-        if st.session_state.agent is not None:
-            with st.expander("Discovered schema"):
+        ready = st.session_state.agent is not None
+        st.markdown("**AGENT STATUS**")
+        st.markdown(
+            f"<span class='status-dot'>●</span> {'Agent Ready' if ready else 'Not ready'}",
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+        st.markdown("**CAPABILITIES**")
+        for cap in CAPABILITIES:
+            st.markdown(f"<div class='cap-row'><span class='cap-dot'>✓</span> {cap}</div>",
+                        unsafe_allow_html=True)
+
+        st.divider()
+        st.markdown("**TRUST & SAFETY**")
+        st.markdown("<div class='cap-row'>🔒 Read-only mode</div>", unsafe_allow_html=True)
+        st.markdown("<div class='cap-row'><span class='cap-dot'>✓</span> Results verified</div>",
+                    unsafe_allow_html=True)
+
+        st.divider()
+        with st.expander("Technical Details"):
+            if not api_key:
+                st.warning("No API key found. Set OPENAI_API_KEY in the environment "
+                           "or Streamlit secrets to run queries.")
+            if ready:
                 st.text(st.session_state.agent.get_table_info())
 
-    with tab_chat:
+    # ---- header ------------------------------------------------------------ #
+    st.title("AI Data Analyst Agent")
+    st.caption("Ask business questions in plain language. Get verified, "
+               "evidence-backed answers from your business database.")
+    st.markdown(
+        f"<span class='trust-pill'>{schema_label}</span>"
+        f"<span class='trust-pill'><span class='status-dot'>●</span> Agent Ready</span>",
+        unsafe_allow_html=True,
+    )
+
+    tab_ask, tab_history = st.tabs(["Ask", "History"])
+
+    with tab_ask:
         if st.session_state.agent is None:
-            st.info("Choose a database and click 'Initialize / Update Agent' in the sidebar.")
-        else:
-            st.subheader("Sample questions")
-            cols = st.columns(len(SAMPLE_QUESTIONS))
-            for i, q in enumerate(SAMPLE_QUESTIONS):
-                if cols[i].button(q, key=f"sample_{i}"):
-                    process_question(q)
+            st.info("Select a database in the sidebar to begin.")
+            return
 
-            st.subheader("Ask your own question")
-            user_q = st.text_input("Type a question about the data", key="user_input")
-            if st.button("Ask", type="primary") and user_q:
-                process_question(user_q)
+        st.markdown("#### Try a sample question")
+        cols = st.columns(len(SAMPLE_QUESTIONS))
+        for i, item in enumerate(SAMPLE_QUESTIONS):
+            with cols[i]:
+                if st.button(item["q"], key=f"sample_{i}"):
+                    process_question(item["q"])
+                if item["complex"]:
+                    st.markdown("<span class='badge-complex'>COMPLEX QUERY</span>",
+                                unsafe_allow_html=True)
 
-            if st.session_state.chat_history:
-                st.divider()
-                question, resp = st.session_state.chat_history[-1]
-                render_response(question, resp)
+        st.markdown("#### Ask your own question")
+        user_q = st.text_input("Question", key="user_input",
+                               label_visibility="collapsed",
+                               placeholder="e.g. What are the top 3 products by revenue?")
+        if st.button("Analyze", type="primary") and user_q:
+            process_question(user_q)
+
+        if st.session_state.chat_history:
+            st.divider()
+            question, resp, schema = st.session_state.chat_history[-1]
+            render_response(question, resp, schema)
 
     with tab_history:
         if not st.session_state.chat_history:
             st.info("No questions asked yet.")
         else:
-            st.subheader(f"History ({len(st.session_state.chat_history)})")
             if st.button("Clear history"):
                 st.session_state.chat_history = []
                 st.rerun()
-            for i, (question, resp) in enumerate(reversed(st.session_state.chat_history)):
+            for i, (question, resp, schema) in enumerate(reversed(st.session_state.chat_history)):
                 label = question[:60] + ("..." if len(question) > 60 else "")
                 with st.expander(f"#{len(st.session_state.chat_history) - i}: {label}"):
-                    render_response(question, resp)
+                    render_response(question, resp, schema)
 
 
 if __name__ == "__main__":

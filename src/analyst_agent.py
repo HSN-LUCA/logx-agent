@@ -124,6 +124,28 @@ def present_result(df):
     return f"{rows} rows:\n" + df.to_string(index=False)
 
 
+# Workflow step labels surfaced to the UI (describe what the agent did).
+SIMPLE_WORKFLOW = [
+    "Understanding question",
+    "Discovering schema",
+    "Generating SQL",
+    "Validating SQL",
+    "Executing query",
+    "Verifying result",
+    "Answer ready",
+]
+
+COMPLEX_WORKFLOW = [
+    "Understanding question",
+    "Detecting complex query",
+    "Planning sub-queries",
+    "Executing sub-queries",
+    "Verifying results",
+    "Deterministic analysis",
+    "Answer ready",
+]
+
+
 class AnalystAgent:
     def __init__(
         self,
@@ -284,8 +306,20 @@ class AnalystAgent:
         computing the final answer deterministically over the verified frames."""
         frames = {}
         sub_attempts = 0
+        subquery_map = pattern.subqueries(self.schema_id)
+        n_steps = len(subquery_map)
+        # Build a workflow with one line per sub-query for transparency.
+        complex_workflow = [
+            "Understanding question",
+            "Detecting complex query",
+            "Planning sub-queries",
+        ] + [f"Executing sub-query {i + 1}" for i in range(n_steps)] + [
+            "Verifying results",
+            "Deterministic analysis",
+            "Answer ready",
+        ]
         try:
-            for name, sub_question in pattern.subqueries(self.schema_id).items():
+            for name, sub_question in subquery_map.items():
                 # Each sub-question rides the existing, reliable single-query path.
                 sub = self._run_simple(sub_question, time.perf_counter())
                 sub_attempts += sub.get("attempts", 1)
@@ -296,6 +330,8 @@ class AnalystAgent:
                         reason=f"sub-query '{name}' failed: {sub.get('reason')}",
                         attempts=sub_attempts, self_corrections=0,
                         start=start, verified=False, error=sub.get("error"),
+                        query_type="complex", steps=n_steps, workflow=complex_workflow,
+                        intermediate_frames=dict(frames),
                     )
                 frames[name] = sub["chart_data"]
 
@@ -306,6 +342,8 @@ class AnalystAgent:
                     True, detail, None, None, reason="pattern found no match",
                     attempts=sub_attempts, self_corrections=0,
                     start=start, verified=False,
+                    query_type="complex", steps=n_steps, workflow=complex_workflow,
+                    intermediate_frames=dict(frames),
                 )
 
             result_df = pd.DataFrame({"answer": [answer_label]})
@@ -314,12 +352,16 @@ class AnalystAgent:
                 True, answer, None, result_df, reason="ok (planned + deterministic)",
                 attempts=sub_attempts, self_corrections=0,
                 start=start, verified=True,
+                query_type="complex", steps=n_steps, workflow=complex_workflow,
+                intermediate_frames=dict(frames),
             )
         except Exception as e:
             return self._result(
                 False, "Sorry, I couldn't answer that reliably.", None, None,
                 reason=str(e), attempts=sub_attempts, self_corrections=0,
                 start=start, verified=False, error=str(e),
+                query_type="complex", steps=n_steps, workflow=complex_workflow,
+                intermediate_frames=dict(frames),
             )
 
     # ---- Orchestration --------------------------------------------------- #
@@ -365,6 +407,7 @@ class AnalystAgent:
                         True, answer, sql, df, reason=prior_error,
                         attempts=attempts, self_corrections=self_corrections,
                         start=start, verified=False,
+                        query_type="simple", steps=1, workflow=SIMPLE_WORKFLOW,
                     )
 
                 answer = self.format_answer(question, sql, df)
@@ -372,6 +415,7 @@ class AnalystAgent:
                     True, answer, sql, df, reason="ok",
                     attempts=attempts, self_corrections=self_corrections,
                     start=start, verified=True,
+                    query_type="simple", steps=1, workflow=SIMPLE_WORKFLOW,
                 )
 
             except Exception as e:
@@ -384,10 +428,13 @@ class AnalystAgent:
                     None, reason=prior_error, attempts=attempts,
                     self_corrections=self_corrections, start=start, verified=False,
                     error=prior_error,
+                    query_type="simple", steps=1, workflow=SIMPLE_WORKFLOW,
                 )
 
     def _result(self, success, answer, sql, df, reason, attempts,
-                self_corrections, start, verified, error=None):
+                self_corrections, start, verified, error=None,
+                query_type="simple", steps=1, workflow=None,
+                intermediate_frames=None):
         return {
             "success": success,
             "answer": answer,
@@ -400,6 +447,11 @@ class AnalystAgent:
             "reason": reason,
             "error": error,
             "response_time_s": round(time.perf_counter() - start, 3),
+            # UI metadata (additive; not used by the evaluation harness).
+            "query_type": query_type,
+            "steps": steps,
+            "workflow": workflow or [],
+            "intermediate_frames": intermediate_frames or {},
         }
 
     def get_table_info(self):
