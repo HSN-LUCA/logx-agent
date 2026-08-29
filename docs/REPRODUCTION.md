@@ -130,6 +130,35 @@ baseline collapses on POS.
 
 ---
 
+## 5b. Gap & Capability Analysis evaluation (Iteration 8)
+
+This is a **separate** evaluation from the Data Analysis set above. It checks
+whether the agent correctly determines if a database can support a business
+capability. It is read-only and does not modify the database.
+
+```bash
+python -m eval.gap_evaluate --schema erp
+python -m eval.gap_evaluate --schema pos
+```
+
+Expected: **5/5 status correct** on both schemas, for example:
+
+```
+Gap Analysis evaluation (erp): 5/5 status correct (100.0%)
+  [OK ] G1 Can the ERP measure customer churn?      expected=PARTIALLY SUPPORTED
+  [OK ] G3 Can we measure supplier delivery ...     expected=NOT SUPPORTED
+  [OK ] G4 Can we calculate customer lifetime value expected=SUPPORTED
+  [OK ] G5 Can we measure inventory turnover?       expected=SUPPORTED
+```
+
+Each status is decided deterministically by matching required data concepts
+against the discovered schema, so the result is reproducible without an API key.
+(The Streamlit UI's Gap Analysis mode additionally uses the LLM to phrase the
+required concepts and the recommendation; the evaluation isolates the
+deterministic grounding.)
+
+---
+
 ## 6. What output to expect
 
 `evaluate.py` prints a JSON summary and writes two files per runner:

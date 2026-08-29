@@ -45,6 +45,25 @@ input and text-to-speech). That original app is the honest starting point.
   different **POS database** (`data/pos_database.py`) for the generalization test.
 - A fixed **evaluation set** with verified ground truth and an **automated scoring
   harness** (`eval/`).
+- A **Gap & Capability Analysis** mode (`src/gap_analysis.py`) that determines
+  whether the connected database can support a business capability, grounded in
+  the discovered schema (read-only; analysis only).
+
+---
+
+## Two modes
+
+- **Data Analysis** — ask a business question, get a verified, evidence-backed
+  answer (chart / table / value).
+- **Gap & Capability Analysis** — ask whether the database can support a
+  capability ("Can our ERP measure customer churn?"). The agent inspects the
+  actual schema and reports what is available, what is missing, the evidence, the
+  business impact, and a recommendation. It never modifies the database.
+
+In Gap Analysis the LLM proposes the *data concepts a capability requires*, but
+**deterministic code decides what actually exists** by matching those concepts
+against the discovered schema. The model never asserts what the database
+contains; availability is always grounded in real schema evidence.
 
 ---
 
@@ -136,6 +155,7 @@ All numbers below are measured on the fixed 12-question set (model
 | Iteration 6 | Same questions against the POS schema | **91.7% (11/12)** | **Generalization confirmed.** Identical accuracy to ERP on a schema with different table/column names and no category table. |
 | Iteration 7 | Query planning: route multi-step questions to sub-queries + **deterministic** computation over verified data frames | **100% (12/12)** | **Kept.** Solved the challenge case (Q12). The single-query agent produced invalid window-function SQL; decomposing into simple sub-queries and computing the trend in Python fixes it with zero execution errors. |
 | Final | Grounding + validation + verification + self-correction + deterministic presentation + query planning | ERP **100%**, POS **100%** | Main contribution: schema-aware grounding that generalizes across schemas, human-readable output that preserves exact values, and decomposition for multi-step questions. |
+| Iteration 8 | Added Gap & Capability Analysis (separate mode): LLM proposes required data concepts, deterministic code matches them to the discovered schema to decide SUPPORTED / PARTIALLY / NOT SUPPORTED | Gap status accuracy **5/5** on both ERP and POS; Data Analysis result **unchanged at 100%/100%** | Additive and read-only. Extends the project from answering questions to assessing what a database *cannot* yet answer, with schema-grounded evidence. |
 
 ### Headline comparison
 
@@ -181,6 +201,8 @@ All numbers below are measured on the fixed 12-question set (model
 | `src/schema_tools.py` | Runtime schema discovery (tables, columns, keys, samples) |
 | `src/business_context.py` | Per-schema business glossary/notes |
 | `src/query_planner.py` | Decomposition patterns + deterministic computation for multi-step questions |
+| `src/gap_analysis.py` | Gap & Capability Analysis (schema-grounded, read-only) |
+| `eval/gap_questions.py` / `eval/gap_evaluate.py` | Separate Gap Analysis evaluation set + harness |
 | `src/ai_agent.py` | Original single-chain agent, used as the plain-LLM baseline |
 | `data/erp_database.py` / `data/pos_database.py` | Seeded, reproducible demo databases |
 | `eval/eval_questions.py` / `eval/eval_questions_pos.py` | The fixed question sets |
@@ -207,6 +229,25 @@ python -m eval.evaluate --runner final        # the full agent
 ## Safety and ground rules
 
 - The agent is **read-only**: a SELECT-only guard blocks any statement that could
-  modify data, matching the hackathon's controlled-action rule.
+  modify data, matching the hackathon's controlled-action rule. Gap Analysis is
+  read-only by construction (it inspects schema metadata and executes no SQL).
 - All data is **synthetic and seeded**; no private data is used.
 - Keep credentials in `.env` (gitignored). Never commit API keys.
+
+## Known limitations / future improvements
+
+- **Gap Analysis keyword coverage.** In Gap Analysis the LLM proposes the data
+  concepts a capability requires, each with keyword hints; deterministic code
+  then matches those hints against the discovered schema. The deterministic
+  matcher is accurate (5/5 on the curated evaluation for both schemas), but the
+  LLM's free-form keyword hints can be narrower than ideal, occasionally causing
+  a SUPPORTED capability to be reported as PARTIALLY SUPPORTED. The status
+  remains schema-grounded and never invents data; it is simply conservative. A
+  future improvement would feed the schema's own vocabulary into the concept step
+  to widen keyword coverage. This is documented rather than patched to avoid
+  scope creep.
+- **Large schemas.** Very large real schemas (hundreds of tables) would benefit
+  from schema-scoping (feeding only relevant tables to the LLM) to stay within
+  context limits.
+- **Business context is per-schema.** A brand-new database works out of the box on
+  structure; domain-specific accuracy improves with a short business-context note.

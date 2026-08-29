@@ -136,6 +136,24 @@ code, never synthesized by the LLM.
 on ERP and POS with zero execution errors.
 **Metric to watch:** challenge-case accuracy; no regression on the simple path.
 
+### Iteration 8 — Gap & Capability Analysis (additive, read-only)
+**Why:** extend the project from "answer questions" to "tell me what this
+database *cannot* yet answer, and why." A stakeholder wants to know if a business
+capability (churn, CLV, supplier performance) is supportable before relying on it.
+**Build:** a separate `GapAnalyzer` mode. The LLM proposes the data concepts a
+capability requires; deterministic code matches them against the discovered
+schema to decide SUPPORTED / PARTIALLY SUPPORTED / NOT SUPPORTED (availability is
+grounded in real schema evidence, never invented); the LLM then writes the
+business impact and recommendation from those facts. UNCERTAIN is the
+conservative fallback. Read-only by construction (no SQL executed).
+**Evidence:** separate 5-question gap evaluation scores 5/5 status accuracy on
+both ERP and POS; the existing Data Analysis evaluation stays at 100%/100%.
+**Metric to watch:** gap status accuracy; and that Iteration 8 does not touch the
+Data Analysis pipeline or its results.
+**Known limitation:** the LLM's free-form concept keywords can be narrower than
+ideal (occasionally reporting SUPPORTED as PARTIALLY). Documented as a future
+improvement, not patched, to avoid scope creep.
+
 ---
 
 ## 5a. How to run each stage (actual commands)
@@ -208,6 +226,7 @@ measured end-to-end result. Working baseline first, generalization second.
 | Iteration 5 | Added business-analysis output | TBD | TBD |
 | Iteration 6 | Ran same questions on POS schema | ERP 91.7%, POS 91.7% | Generalization confirmed |
 | Iteration 7 | Query planning + deterministic computation | ERP 100%, POS 100% | Solved the challenge case; kept |
+| Iteration 8 | Gap & Capability Analysis (additive, read-only) | Gap status 5/5 both schemas; Data Analysis unchanged 100%/100% | Kept; extends scope to capability assessment |
 | Final | Combined the changes that worked | ERP 100%, POS 100% | Main contribution |
 
 See the README for the full measured changelog with per-iteration evidence.
