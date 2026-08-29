@@ -263,19 +263,45 @@ def render_chart(df, question, chart_type):
 
     st.markdown(f"### {answer_heading(question)}")
 
-    plot_df = df[[label_col, value_col]].copy().set_index(label_col)
+    plot_df = df[[label_col, value_col]].copy()
+    y_title = prettify_col(value_col)
+    x_title = prettify_col(label_col)
 
-    if chart_type == "line":
-        st.line_chart(plot_df)
-    elif chart_type == "bar":
-        st.bar_chart(plot_df)
-    elif chart_type == "scatter":
-        st.scatter_chart(df, x=num_cols[0], y=num_cols[1])
-    elif chart_type == "pie":
-        # Streamlit has no native pie; use Altair (bundled with Streamlit).
-        try:
-            import altair as alt
+    try:
+        import altair as alt
 
+        # Y scale fitted to the data and never negative (revenue-friendly).
+        y_min = min(0, float(plot_df[value_col].min()))
+        y_scale = alt.Scale(domainMin=y_min)
+
+        if chart_type == "line":
+            chart = (
+                alt.Chart(plot_df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X(label_col, sort=None, title=x_title),
+                    y=alt.Y(value_col, title=y_title, scale=y_scale),
+                )
+            )
+            st.altair_chart(chart, use_container_width=True)
+        elif chart_type == "bar":
+            chart = (
+                alt.Chart(plot_df)
+                .mark_bar()
+                .encode(
+                    x=alt.X(label_col, sort="-y", title=x_title),
+                    y=alt.Y(value_col, title=y_title, scale=y_scale),
+                )
+            )
+            st.altair_chart(chart, use_container_width=True)
+        elif chart_type == "scatter":
+            chart = (
+                alt.Chart(df)
+                .mark_circle(size=80)
+                .encode(x=num_cols[0], y=num_cols[1])
+            )
+            st.altair_chart(chart, use_container_width=True)
+        elif chart_type == "pie":
             chart = (
                 alt.Chart(df)
                 .mark_arc()
@@ -283,8 +309,13 @@ def render_chart(df, question, chart_type):
                         color=alt.Color(label_col, type="nominal"))
             )
             st.altair_chart(chart, use_container_width=True)
-        except Exception:
-            st.bar_chart(plot_df)
+    except Exception:
+        # Fallback to native charts if Altair is unavailable.
+        indexed = plot_df.set_index(label_col)
+        if chart_type == "bar":
+            st.bar_chart(indexed)
+        else:
+            st.line_chart(indexed)
 
     # Deterministic high/low insight beneath the chart.
     if chart_type in ("line", "bar", "pie"):
@@ -293,6 +324,9 @@ def render_chart(df, question, chart_type):
 
 def answer_heading(question):
     q = question.lower()
+    is_revenue = "revenue" in q or "sales" in q
+    if any(t in q for t in ("month", "monthly", "over time", "trend")):
+        return "Monthly Sales Revenue" if is_revenue else "Monthly Trend"
     if "top" in q and "product" in q:
         return "Top Products by Revenue"
     if "revenue" in q and ("corporate" in q or "retail" in q or "segment" in q):
