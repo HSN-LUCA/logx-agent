@@ -172,6 +172,125 @@ def render_table(df):
     st.dataframe(display, use_container_width=True, hide_index=True)
 
 
+# --- deterministic visualization ------------------------------------------- #
+TEMPORAL_TOKENS = ("month", "date", "period", "year", "day", "week", "quarter")
+TEMPORAL_INTENT = ("over time", "trend", "monthly", "by month", "each month",
+                   "per month", "timeline", "time series", "growth over")
+RANKING_INTENT = ("top", "ranking", "rank", "by product", "by branch", "by store",
+                  "by category", "highest", "lowest", "most", "least", "compare")
+COMPOSITION_INTENT = ("share", "composition", "distribution", "breakdown",
+                      "proportion", "percentage of", "split")
+
+
+def _numeric_cols(df):
+    return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+
+def _looks_temporal(colname, series):
+    n = colname.lower()
+    if any(tok in n for tok in TEMPORAL_TOKENS):
+        return True
+    # Values like '2026-01' or '2026-01-15'.
+    try:
+        sample = str(series.iloc[0])
+        return bool(re.match(r"^\d{4}-\d{2}", sample))
+    except Exception:
+        return False
+
+
+def select_chart_type(df, question):
+    """Deterministically choose a chart type from data shape + question intent.
+
+    Returns one of: 'line', 'bar', 'pie', 'scatter', or None (table only).
+    No LLM involved; purely a function of the verified dataframe and the text.
+    """
+    if df is None or len(df) < 2:
+        return None  # a single value is not a chart
+
+    q = (question or "").lower()
+    num_cols = _numeric_cols(df)
+    non_num = [c for c in df.columns if c not in num_cols]
+
+    # Need at least one numeric series to plot.
+    if not num_cols:
+        return None
+
+    # Two numeric columns and correlation-style intent -> scatter.
+    if len(num_cols) >= 2 and ("correlation" in q or "relationship" in q or "vs" in q):
+        return "scatter"
+
+    # Temporal x-axis (by column name/values or intent) -> line.
+    label_col = non_num[0] if non_num else df.columns[0]
+    if _looks_temporal(label_col, df[label_col]) or any(t in q for t in TEMPORAL_INTENT):
+        return "line"
+
+    # Composition intent with a small number of categories -> pie.
+    if any(t in q for t in COMPOSITION_INTENT) and 2 <= len(df) <= 8 and len(num_cols) == 1:
+        return "pie"
+
+    # Ranking / category comparison -> bar.
+    if non_num and (any(t in q for t in RANKING_INTENT) or len(df) <= 15):
+        return "bar"
+
+    return None
+
+
+def _insight_lines(df, label_col, value_col):
+    """Deterministic high/low summary of a numeric series (exact values)."""
+    try:
+        top = df.loc[df[value_col].idxmax()]
+        bottom = df.loc[df[value_col].idxmin()]
+        money = is_money_col(value_col)
+        def fmt(v):
+            if money:
+                return f"AED {int(v):,}" if float(v) == int(v) else f"AED {v:,.2f}"
+            return f"{int(v):,}" if float(v) == int(v) else f"{v:,}"
+        st.markdown(
+            f"- **Highest:** {top[label_col]} — {fmt(top[value_col])}\n"
+            f"- **Lowest:** {bottom[label_col]} — {fmt(bottom[value_col])}"
+        )
+    except Exception:
+        pass
+
+
+def render_chart(df, question, chart_type):
+    """Visualize the VERIFIED dataframe. The chart is a view of the data the
+    agent already computed -- never re-queried or LLM-generated."""
+    num_cols = _numeric_cols(df)
+    non_num = [c for c in df.columns if c not in num_cols]
+    label_col = non_num[0] if non_num else df.columns[0]
+    value_col = num_cols[0]
+
+    st.markdown(f"### {answer_heading(question)}")
+
+    plot_df = df[[label_col, value_col]].copy().set_index(label_col)
+
+    if chart_type == "line":
+        st.line_chart(plot_df)
+    elif chart_type == "bar":
+        st.bar_chart(plot_df)
+    elif chart_type == "scatter":
+        st.scatter_chart(df, x=num_cols[0], y=num_cols[1])
+    elif chart_type == "pie":
+        # Streamlit has no native pie; use Altair (bundled with Streamlit).
+        try:
+            import altair as alt
+
+            chart = (
+                alt.Chart(df)
+                .mark_arc()
+                .encode(theta=alt.Theta(value_col, type="quantitative"),
+                        color=alt.Color(label_col, type="nominal"))
+            )
+            st.altair_chart(chart, use_container_width=True)
+        except Exception:
+            st.bar_chart(plot_df)
+
+    # Deterministic high/low insight beneath the chart.
+    if chart_type in ("line", "bar", "pie"):
+        _insight_lines(df, label_col, value_col)
+
+
 def answer_heading(question):
     q = question.lower()
     if "top" in q and "product" in q:
@@ -229,10 +348,17 @@ def render_response(question, resp, schema_label):
 
     with left:
         df = resp.get("chart_data")
+        chart_type = None if is_complex else select_chart_type(df, question)
+
         if is_complex:
             # Complex: highlight the answer + business explanation.
             st.markdown(f"### {resp.get('answer').split(' had ')[0] if ' had ' in str(resp.get('answer')) else 'Result'}")
             st.write(resp.get("answer"))
+        elif chart_type:
+            # Auto-visualize the verified dataframe; keep the table below.
+            render_chart(df, question, chart_type)
+            with st.expander("View exact data"):
+                render_table(df)
         elif df is not None and len(df) > 0 and not (df.shape == (1, 1)):
             st.markdown(f"### {answer_heading(question)}")
             render_table(df)
