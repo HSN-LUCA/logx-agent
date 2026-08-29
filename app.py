@@ -15,6 +15,9 @@ import pandas as pd
 import streamlit as st
 
 from src.analyst_agent import AnalystAgent
+from src.gap_analysis import (
+    GapAnalyzer, SUPPORTED, PARTIALLY, NOT_SUPPORTED, UNCERTAIN,
+)
 from paths import ERP_DB, POS_DB
 
 # --- schema registry -------------------------------------------------------- #
@@ -38,6 +41,21 @@ CAPABILITIES = [
     "Self-Correction",
     "Query Planning",
 ]
+
+GAP_EXAMPLES = [
+    "Can our ERP measure customer churn?",
+    "Can we identify customers who have become inactive?",
+    "Can we measure supplier delivery performance?",
+    "Can we calculate customer lifetime value?",
+    "Can we measure inventory turnover?",
+]
+
+STATUS_STYLE = {
+    SUPPORTED: ("#ecfdf5", "#a7f3d0", "#065f46"),
+    PARTIALLY: ("#fffbeb", "#fde68a", "#92400e"),
+    NOT_SUPPORTED: ("#fef2f2", "#fecaca", "#991b1b"),
+    UNCERTAIN: ("#f3f4f6", "#e5e7eb", "#374151"),
+}
 
 # Column-name tokens that indicate a monetary value (AED). We only format as
 # currency when the column name clearly means money; otherwise we leave numbers
@@ -449,6 +467,74 @@ def render_response(question, resp, schema_label):
             st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+# --- gap analysis (Iteration 8) --------------------------------------------- #
+def get_gap_analyzer(schema_label):
+    cfg = SCHEMAS[schema_label]
+    ensure_database(cfg["builder"], cfg["db"])
+    from src.schema_tools import make_engine
+
+    return GapAnalyzer(make_engine(cfg["db"]), schema_id=cfg["schema_id"])
+
+
+def render_gap_report(report):
+    bg, border, fg = STATUS_STYLE.get(report.status, STATUS_STYLE[UNCERTAIN])
+    st.markdown(
+        f"<div style='background:{bg};border:1px solid {border};border-radius:10px;"
+        f"padding:14px 16px;margin-bottom:14px;'>"
+        f"<span style='font-weight:700;color:{fg};font-size:1.05rem;'>"
+        f"{report.capability}</span><br>"
+        f"<span style='font-weight:700;color:{fg};'>Status: {report.status}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Available information**")
+        if report.available:
+            for a in report.available:
+                ev = ", ".join(a["evidence"][:4])
+                st.markdown(f"<div class='cap-row'><span class='cap-dot'>✓</span> "
+                            f"{a['name']}</div>", unsafe_allow_html=True)
+                if ev:
+                    st.caption(f"evidence: {ev}")
+        else:
+            st.caption("None of the required concepts were found.")
+    with right:
+        st.markdown("**Missing / insufficient**")
+        if report.missing:
+            for m in report.missing:
+                st.markdown(f"<div class='cap-row'><span style='color:#dc2626;"
+                            f"font-weight:700;'>✗</span> {m['name']}</div>",
+                            unsafe_allow_html=True)
+        else:
+            st.caption("Nothing essential is missing.")
+
+    st.markdown(f"**Evidence:** {report.evidence_summary}")
+    if report.business_impact:
+        st.markdown(f"**Business impact:** {report.business_impact}")
+    if report.recommendation:
+        st.markdown(f"**Recommendation:** {report.recommendation}")
+
+    st.write("")
+    st.markdown(
+        f"<span class='trust-pill'>Confidence: {report.confidence}</span>"
+        f"<span class='trust-pill'>🔒 Read-only (analysis only)</span>",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Schema evidence (facts)"):
+        for f in report.facts:
+            st.markdown(f"- {f}")
+
+
+def process_gap(capability):
+    with st.spinner("Inspecting schema, comparing required vs available data..."):
+        analyzer = get_gap_analyzer(st.session_state.schema_label)
+        report = analyzer.analyze(capability)
+        st.session_state.gap_history.append((capability, report, st.session_state.schema_label))
+
+
 # --- app -------------------------------------------------------------------- #
 def process_question(question):
     with st.spinner("Analyzing, planning, generating SQL, verifying result..."):
@@ -463,6 +549,8 @@ def main():
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    if "gap_history" not in st.session_state:
+        st.session_state.gap_history = []
     if "agent" not in st.session_state:
         st.session_state.agent = None
     if "schema_label" not in st.session_state:
@@ -533,27 +621,54 @@ def main():
             st.info("Select a database in the sidebar to begin.")
             return
 
-        st.markdown("#### Try a sample question")
-        cols = st.columns(len(SAMPLE_QUESTIONS))
-        for i, item in enumerate(SAMPLE_QUESTIONS):
-            with cols[i]:
-                if st.button(item["q"], key=f"sample_{i}"):
-                    process_question(item["q"])
-                if item["complex"]:
-                    st.markdown("<span class='badge-complex'>COMPLEX QUERY</span>",
-                                unsafe_allow_html=True)
+        mode = st.radio("Mode", ["Data Analysis", "Gap Analysis"],
+                        horizontal=True, label_visibility="collapsed")
 
-        st.markdown("#### Ask your own question")
-        user_q = st.text_input("Question", key="user_input",
-                               label_visibility="collapsed",
-                               placeholder="e.g. What are the top 3 products by revenue?")
-        if st.button("Analyze", type="primary") and user_q:
-            process_question(user_q)
+        if mode == "Data Analysis":
+            st.markdown("#### Try a sample question")
+            cols = st.columns(len(SAMPLE_QUESTIONS))
+            for i, item in enumerate(SAMPLE_QUESTIONS):
+                with cols[i]:
+                    if st.button(item["q"], key=f"sample_{i}"):
+                        process_question(item["q"])
+                    if item["complex"]:
+                        st.markdown("<span class='badge-complex'>COMPLEX QUERY</span>",
+                                    unsafe_allow_html=True)
 
-        if st.session_state.chat_history:
-            st.divider()
-            question, resp, schema = st.session_state.chat_history[-1]
-            render_response(question, resp, schema)
+            st.markdown("#### Ask your own question")
+            user_q = st.text_input("Question", key="user_input",
+                                   label_visibility="collapsed",
+                                   placeholder="e.g. What are the top 3 products by revenue?")
+            if st.button("Analyze", type="primary") and user_q:
+                process_question(user_q)
+
+            if st.session_state.chat_history:
+                st.divider()
+                question, resp, schema = st.session_state.chat_history[-1]
+                render_response(question, resp, schema)
+
+        else:  # Gap Analysis (Iteration 8)
+            st.caption("Ask whether this database can support a business capability. "
+                       "The agent inspects the actual schema and reports what is "
+                       "available, what is missing, and what to add — read-only.")
+            st.markdown("#### Try a capability question")
+            gcols = st.columns(len(GAP_EXAMPLES))
+            for i, gq in enumerate(GAP_EXAMPLES):
+                with gcols[i]:
+                    if st.button(gq, key=f"gap_{i}"):
+                        process_gap(gq)
+
+            st.markdown("#### Ask your own capability question")
+            gap_q = st.text_input("Capability", key="gap_input",
+                                  label_visibility="collapsed",
+                                  placeholder="e.g. Can we measure customer lifetime value?")
+            if st.button("Analyze Capability", type="primary") and gap_q:
+                process_gap(gap_q)
+
+            if st.session_state.gap_history:
+                st.divider()
+                capability, report, schema = st.session_state.gap_history[-1]
+                render_gap_report(report)
 
     with tab_history:
         if not st.session_state.chat_history:
