@@ -57,7 +57,14 @@ databases), fully reproducible from a clean clone (see
 
 The keyword baseline **collapses** on the second schema (25% → 8.3%) because its
 SQL is tied to one set of table names. The final agent scores **100% on both** —
-evidence that it understands the *question*, not one schema.
+strong evidence that it adapts to the question and schema rather than relying on
+one fixed schema. (A 12-question set is strong evidence of generalization, not a
+proof of complete "understanding.")
+
+Actual step-by-step execution traces for representative runs are in
+[`traces/`](traces/) — including the complex-query decomposition and the gap
+analysis — so the agent's behavior can be inspected directly, not just its final
+answers.
 
 ### Gap & Capability Analysis
 
@@ -186,7 +193,8 @@ databases**. The claim is deliberately bounded and testable:
 The same business questions are asked against two databases with different table
 and column names (ERP `invoices/invoice_lines/line_total` vs. POS
 `sales_receipts/basket_items/amount`, and POS has no category table at all). If the
-agent answers correctly on both, it understands the *question*, not one schema.
+agent answers correctly on both, that is strong evidence it adapts to the question
+and schema rather than relying on one fixed schema.
 
 ---
 
@@ -277,6 +285,8 @@ All numbers below are measured on the fixed 12-question set (model
 | `eval/eval_questions.py` / `eval/eval_questions_pos.py` | The fixed question sets |
 | `eval/ground_truth.py` | Computes verified answers from the databases |
 | `eval/evaluate.py` | Automated scoring harness (all runners, both schemas) |
+| `eval/export_traces.py` | Exports genuine execution traces from live runs |
+| `traces/` | Real step-by-step execution traces (data analysis, complex query, POS, gap analysis) |
 | `docs/STRATEGY.md` | The build strategy and iteration roadmap |
 | `docs/REPRODUCTION.md` | Clean-environment reproduction guide |
 

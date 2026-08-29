@@ -1,0 +1,60 @@
+{
+  "mode": "data_analysis",
+  "schema_id": "pos",
+  "question": "What are the top 3 products by total revenue?",
+  "query_type": "simple",
+  "steps_planned": 1,
+  "workflow": [
+    "Understanding question",
+    "Discovering schema",
+    "Generating SQL",
+    "Validating SQL",
+    "Executing query",
+    "Verifying result",
+    "Answer ready"
+  ],
+  "sql_generated": "SELECT \n    items.title AS product_name,\n    items.dept AS product_category,\n    SUM(basket_items.amount) AS total_revenue\nFROM \n    basket_items\nJOIN \n    items ON basket_items.item_id = items.item_id\nGROUP BY \n    items.title\nORDER BY \n    total_revenue DESC\nLIMIT 3",
+  "read_only_validated": true,
+  "verified": true,
+  "attempts": 1,
+  "self_corrections": 0,
+  "final_answer": "3 rows:\n    product_name product_category  total_revenue\nUltraSlim Laptop          Laptops       832500.0\n  ProBook Laptop          Laptops       550400.0\n  34in Ultrawide         Displays       242550.0",
+  "result_preview": {
+    "columns": [
+      "product_name",
+      "product_category",
+      "total_revenue"
+    ],
+    "row_count": 3,
+    "rows": [
+      {
+        "product_name": "UltraSlim Laptop",
+        "product_category": "Laptops",
+        "total_revenue": 832500.0
+      },
+      {
+        "product_name": "ProBook Laptop",
+        "product_category": "Laptops",
+        "total_revenue": 550400.0
+      },
+      {
+        "product_name": "34in Ultrawide",
+        "product_category": "Displays",
+        "total_revenue": 242550.0
+      }
+    ]
+  },
+  "response_time_s": 1.95,
+  "llm_calls": [
+    {
+      "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE basket_items: basket_id (INTEGER), receipt_id (INTEGER), item_id (INTEGER), units (INTEGER), unit_price (REAL), amount (REAL)\n  PK: basket_id\n  FK: item_id -> items.item_id\n  FK: receipt_id -> sales_receipts.receipt_id\n  sample: basket_id=1, receipt_id=1, item_id=7, units=5, unit_price=1650.0, amount=8250.0\nTABLE inventory_snapshots: snap_id (INTEGER), item_id (INTEGER), period (TEXT), qt",
+      "response_preview": "SELECT \n    items.title AS product_name,\n    items.dept AS product_category,\n    SUM(basket_items.amount) AS total_revenue\nFROM \n    basket_items\nJOIN \n    items ON basket_items.item_id = items.item_id\nGROUP BY \n    items.title\nORDER BY \n    total_revenue DESC\nLIMIT 3;"
+    },
+    {
+      "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: What are the top 3 products by total revenue?\nSQL: SELECT \n    items.title AS product_name,\n    items.dept AS product_category,\n    SUM(basket_items.amount) AS total_revenue\nFROM \n    basket_items\nJOIN \n    items ON basket_items.item_id = items.item_id\nGROUP BY \n    items.title\nORDER BY \n    total_revenue DESC\nLIMIT 3\nRESULT (up to 10 rows):\n    product_name product_category  total_revenue\nUltraSlim Laptop          Laptops       832500.0\n  ProBook Laptop          L",
+      "response_preview": "YES: The result provides the top 3 products by total revenue."
+    }
+  ],
+  "captured_at": "2026-08-29T17:33:23.654000+00:00",
+  "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
+}

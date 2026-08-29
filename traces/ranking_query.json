@@ -1,0 +1,56 @@
+{
+  "mode": "data_analysis",
+  "schema_id": "erp",
+  "question": "What are the top 3 products by total revenue?",
+  "query_type": "simple",
+  "steps_planned": 1,
+  "workflow": [
+    "Understanding question",
+    "Discovering schema",
+    "Generating SQL",
+    "Validating SQL",
+    "Executing query",
+    "Verifying result",
+    "Answer ready"
+  ],
+  "sql_generated": "SELECT \n    products.product_name,\n    SUM(invoice_lines.line_total) AS total_revenue\nFROM \n    products\nJOIN \n    invoice_lines ON products.product_id = invoice_lines.product_id\nJOIN \n    invoices ON invoice_lines.invoice_id = invoices.invoice_id\nWHERE \n    invoices.invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY \n    products.product_name\nORDER BY \n    total_revenue DESC\nLIMIT 3",
+  "read_only_validated": true,
+  "verified": true,
+  "attempts": 1,
+  "self_corrections": 0,
+  "final_answer": "3 results, by total revenue:\n1. UltraSlim Laptop - 1,102,500\n2. ProBook Laptop - 579,200\n3. 34in Ultrawide - 254,100",
+  "result_preview": {
+    "columns": [
+      "product_name",
+      "total_revenue"
+    ],
+    "row_count": 3,
+    "rows": [
+      {
+        "product_name": "UltraSlim Laptop",
+        "total_revenue": 1102500.0
+      },
+      {
+        "product_name": "ProBook Laptop",
+        "total_revenue": 579200.0
+      },
+      {
+        "product_name": "34in Ultrawide",
+        "total_revenue": 254100.0
+      }
+    ]
+  },
+  "response_time_s": 2.616,
+  "llm_calls": [
+    {
+      "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+      "response_preview": "SELECT \n    products.product_name,\n    SUM(invoice_lines.line_total) AS total_revenue\nFROM \n    products\nJOIN \n    invoice_lines ON products.product_id = invoice_lines.product_id\nJOIN \n    invoices ON invoice_lines.invoice_id = invoices.invoice_id\nWHERE \n    invoices.invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY \n    products.product_name\nORDER BY \n    total_revenue DESC\nLIMIT 3;"
+    },
+    {
+      "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: What are the top 3 products by total revenue?\nSQL: SELECT \n    products.product_name,\n    SUM(invoice_lines.line_total) AS total_revenue\nFROM \n    products\nJOIN \n    invoice_lines ON products.product_id = invoice_lines.product_id\nJOIN \n    invoices ON invoice_lines.invoice_id = invoices.invoice_id\nWHERE \n    invoices.invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY \n    products.product_name\nORDER BY \n    total_revenue DESC\nLIMIT 3\nRESULT (up to 10 rows)",
+      "response_preview": "YES: The result provides the top 3 products by total revenue, as requested."
+    }
+  ],
+  "captured_at": "2026-08-29T17:33:17.254265+00:00",
+  "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
+}

@@ -1,0 +1,55 @@
+{
+  "mode": "gap_analysis",
+  "schema_id": "erp",
+  "capability_question": "Can our ERP measure customer churn?",
+  "status": "PARTIALLY SUPPORTED",
+  "available": [
+    {
+      "name": "Customer records",
+      "evidence": [
+        "customers",
+        "customers.customer_id",
+        "customers.customer_name",
+        "invoices.customer_id"
+      ]
+    },
+    {
+      "name": "Transaction history",
+      "evidence": [
+        "invoice_lines",
+        "invoice_lines.invoice_id",
+        "invoices",
+        "invoices.invoice_id",
+        "invoices.invoice_date"
+      ]
+    }
+  ],
+  "missing": [
+    {
+      "name": "Customer status field",
+      "essential": true
+    }
+  ],
+  "evidence_summary": "2 of 3 required concept(s) were found in the discovered schema.",
+  "schema_facts": [
+    "Customer records: FOUND customers, customers.customer_id, customers.customer_name, invoices.customer_id",
+    "Transaction history: FOUND invoice_lines, invoice_lines.invoice_id, invoices, invoices.invoice_id, invoices.invoice_date",
+    "Customer status field: NOT FOUND"
+  ],
+  "business_impact": "Without a customer status field, it may be challenging to accurately measure customer churn.",
+  "recommendation": "Consider adding a customer status field to the database schema to better track and analyze customer churn.",
+  "confidence": "Medium",
+  "read_only": true,
+  "llm_calls": [
+    {
+      "prompt_preview": "You are a data architect. A business stakeholder asks whether a database can support a capability. Identify the underlying DATA REQUIREMENTS: the kinds of business data a database would need to STORE to support this capability.\n\nEach requirement must be a business DATA ENTITY or DATA ATTRIBUTE (something that would appear as a table or column), for example: 'Customer records', 'Order/transaction history', 'Delivery dates', 'Product status field'.\n\nSTRICT RULES:\n- Do NOT use the question's action or context words as requirements. Words like 'measure', 'track', 'calculate', 'analyze', 'support',",
+      "response_preview": "[\n  {\"name\": \"Customer records\", \"keywords\": [\"customer\", \"client\", \"account\"], \"essential\": true},\n  {\"name\": \"Transaction history\", \"keywords\": [\"transaction\", \"purchase\", \"order\"], \"essential\": true},\n  {\"name\": \"Customer status field\", \"keywords\": [\"status\", \"classification\", \"state\"], \"essential\": true}\n]"
+    },
+    {
+      "prompt_preview": "You are advising a business stakeholder. Based ONLY on the facts below (which were determined deterministically from the real database schema), write a short business impact and a practical recommendation. Do NOT claim any data exists beyond the facts. Do NOT present the recommendation as existing functionality.\nReturn ONLY JSON with keys \"business_impact\" (1-2 sentences), \"recommendation\" (1-2 sentences), \"confidence\" (\"High\"/\"Medium\"/\"Low\"). No markdown.\n\nCAPABILITY: Can our ERP measure customer churn?\nSTATUS: PARTIALLY SUPPORTED\nAVAILABLE (facts from schema): Customer records (evidence: cus",
+      "response_preview": "{\n  \"business_impact\": \"Without a customer status field, it may be challenging to accurately measure customer churn.\",\n  \"recommendation\": \"Consider adding a customer status field to the database schema to better track and analyze customer churn.\",\n  \"confidence\": \"Medium\"\n}"
+    }
+  ],
+  "captured_at": "2026-08-29T17:33:25.750446+00:00",
+  "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
+}

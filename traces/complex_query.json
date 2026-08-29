@@ -1,0 +1,198 @@
+{
+  "mode": "data_analysis",
+  "schema_id": "erp",
+  "question": "Which product had declining unit sales for three consecutive months while its stock on hand was increasing?",
+  "query_type": "complex",
+  "steps_planned": 2,
+  "workflow": [
+    "Understanding question",
+    "Detecting complex query",
+    "Planning sub-queries",
+    "Executing sub-query 1",
+    "Executing sub-query 2",
+    "Verifying results",
+    "Deterministic analysis",
+    "Answer ready"
+  ],
+  "sql_generated": null,
+  "read_only_validated": true,
+  "verified": true,
+  "attempts": 2,
+  "self_corrections": 0,
+  "final_answer": "Docking Station had three consecutive months of declining unit sales while its stock on hand rose over the same period.",
+  "result_preview": {
+    "columns": [
+      "answer"
+    ],
+    "row_count": 1,
+    "rows": [
+      {
+        "answer": "Docking Station"
+      }
+    ]
+  },
+  "response_time_s": 4.435,
+  "llm_calls": [
+    {
+      "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+      "response_preview": "SELECT p.product_name, strftime('%Y-%m', i.invoice_date) AS month, SUM(il.quantity) AS total_units\nFROM products p\nJOIN invoice_lines il ON p.product_id = il.product_id\nJOIN invoices i ON il.invoice_id = i.invoice_id\nWHERE i.invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY p.product_name, month;"
+    },
+    {
+      "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: For every product, the total units sold in each month. Return three columns: product name, month (YYYY-MM), total units.\nSQL: SELECT p.product_name, strftime('%Y-%m', i.invoice_date) AS month, SUM(il.quantity) AS total_units\nFROM products p\nJOIN invoice_lines il ON p.product_id = il.product_id\nJOIN invoices i ON il.invoice_id = i.invoice_id\nWHERE i.invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY p.product_name, month\nRESULT (up to 10 rows):\n  product_na",
+      "response_preview": "YES: The result provides the total units sold for each product in each month within the specified date range, fulfilling the business question."
+    },
+    {
+      "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+      "response_preview": "SELECT p.product_name, s.month, s.units_on_hand\nFROM products p\nJOIN stock s ON p.product_id = s.product_id\nWHERE s.month BETWEEN '2026-01' AND '2026-08'\nORDER BY p.product_name, s.month;"
+    },
+    {
+      "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: For every product, the stock on hand in each month. Return three columns: product name, month (YYYY-MM), units on hand.\nSQL: SELECT p.product_name, s.month, s.units_on_hand\nFROM products p\nJOIN stock s ON p.product_id = s.product_id\nWHERE s.month BETWEEN '2026-01' AND '2026-08'\nORDER BY p.product_name, s.month\nRESULT (up to 10 rows):\n  product_name   month  units_on_hand\n  27in Monitor 2026-01            120\n  27in Monitor 2026-02            116\n  27in Monitor 2026",
+      "response_preview": "YES: The result provides the stock on hand for every product in each month between January 2026 and August 2026, as requested in the business question."
+    }
+  ],
+  "intermediate_frames": {
+    "units": {
+      "columns": [
+        "product_name",
+        "month",
+        "total_units"
+      ],
+      "row_count": 72,
+      "rows": [
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-01",
+          "total_units": 31
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-02",
+          "total_units": 29
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-03",
+          "total_units": 34
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-04",
+          "total_units": 30
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-05",
+          "total_units": 22
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-06",
+          "total_units": 47
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-07",
+          "total_units": 16
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-08",
+          "total_units": 24
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-01",
+          "total_units": 11
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-02",
+          "total_units": 7
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-03",
+          "total_units": 11
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-04",
+          "total_units": 29
+        }
+      ]
+    },
+    "stock": {
+      "columns": [
+        "product_name",
+        "month",
+        "units_on_hand"
+      ],
+      "row_count": 72,
+      "rows": [
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-01",
+          "units_on_hand": 120
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-02",
+          "units_on_hand": 116
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-03",
+          "units_on_hand": 121
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-04",
+          "units_on_hand": 111
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-05",
+          "units_on_hand": 120
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-06",
+          "units_on_hand": 116
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-07",
+          "units_on_hand": 109
+        },
+        {
+          "product_name": "27in Monitor",
+          "month": "2026-08",
+          "units_on_hand": 119
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-01",
+          "units_on_hand": 83
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-02",
+          "units_on_hand": 79
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-03",
+          "units_on_hand": 77
+        },
+        {
+          "product_name": "34in Ultrawide",
+          "month": "2026-04",
+          "units_on_hand": 67
+        }
+      ]
+    }
+  },
+  "deterministic_computation": "Final answer computed in Python from the verified intermediate frames above (no LLM synthesis).",
+  "captured_at": "2026-08-29T17:33:21.696384+00:00",
+  "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
+}
