@@ -117,10 +117,20 @@ def main():
 
         schema_choice = st.selectbox("Database", list(SCHEMAS.keys()))
 
+        # Resolve a default key from env (.env locally) or Streamlit secrets
+        # (Streamlit Community Cloud). The user can still override it here.
+        default_key = os.getenv("OPENAI_API_KEY", "")
+        if not default_key:
+            try:
+                default_key = st.secrets.get("OPENAI_API_KEY", "")
+            except Exception:
+                default_key = ""
+
         api_key = st.text_input(
             "OpenAI API Key", type="password",
-            value=os.getenv("OPENAI_API_KEY", ""),
-            help="Needed for SQL generation, verification and analysis.",
+            value=default_key,
+            help="Needed for SQL generation, verification and analysis. "
+                 "On Streamlit Cloud, set it in the app's Secrets instead.",
         )
         if api_key:
             os.environ["OPENAI_API_KEY"] = api_key
