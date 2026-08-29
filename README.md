@@ -1,28 +1,77 @@
 # AI Data Analyst Agent for Business Databases
 
-**A self-verifying agent that answers natural-language business questions over a
-relational database, and adapts to different schemas instead of memorizing one.**
+**A self-verifying agent that turns plain-language business questions into
+verified analysis over a real database — and adapts to different schemas instead
+of memorizing one.**
 
 Ask *"Which branch had the highest revenue growth from June to July?"* and get a
-verified, business-readable answer with the SQL and data source as evidence, whether
-the data lives in an ERP schema or a completely different point-of-sale schema.
+verified, business-readable answer with the SQL and data as evidence — whether the
+data lives in an ERP schema or a completely different point-of-sale schema. Or ask
+*"Can our ERP measure customer churn?"* and get a schema-grounded assessment of
+what the database can and cannot support.
+
+**Live app:** deployed on Streamlit Community Cloud · **Repo:** github.com/HSN-LUCA/logx-agent
 
 ---
 
-## The user and the bottleneck
+## Problem
 
-**Who has the problem.** A non-technical business user, an operations lead, a
-finance analyst, a sales manager, who needs answers that live inside a business
-database (ERP, POS, CRM, accounting, inventory) but cannot write SQL.
+Non-technical business users — an operations lead, a finance analyst, a sales
+manager — need answers that live inside a business database (ERP, POS, CRM,
+accounting, inventory) but **cannot write SQL**. Today every ad-hoc question
+becomes a ticket to the data team; the user waits, and the first query often
+misses the intent. The gap is between a *business question* and a *correct,
+trustworthy result*. The hard part isn't generating *some* SQL — it's generating
+SQL that is **correct**, and knowing when it isn't.
 
-**The bottleneck today.** Every ad-hoc question becomes a ticket to IT or the data
-team. The user waits, and often the first query misses the intent, so it iterates.
-The gap is between a *business question* and a *correct, trustworthy SQL result*.
+## Solution
 
-**Why solving it matters.** Faster decisions, fewer analyst hours spent on one-off
-pulls, and answers a manager can trust without reading SQL. The hard part is not
-generating *some* SQL, it is generating SQL that is *correct* and knowing when it
-is not.
+An **AI Data Analyst Agent** that:
+
+1. **Discovers the schema** of whatever database it's connected to, at runtime.
+2. **Translates natural language into verified analysis** — generating SQL,
+   validating it as read-only, executing it, and checking the result actually
+   answers the question.
+3. **Handles complex questions through planning** — decomposing multi-step
+   questions into simple sub-queries and computing the answer deterministically.
+4. **Identifies capability gaps** — telling a stakeholder whether the database can
+   support a capability (e.g. churn), with evidence and a recommendation.
+
+Guiding principle throughout: **the AI understands and plans; verified data
+provides the facts; deterministic code computes and presents them.** The model is
+never allowed to invent or rewrite a verified result.
+
+## Measured results
+
+Measured on a fixed 12-question evaluation set (model `gpt-3.5-turbo`, seeded
+databases), fully reproducible from a clean clone (see
+[docs/REPRODUCTION.md](docs/REPRODUCTION.md)).
+
+### Data Analysis — accuracy across two different schemas
+
+| Runner | ERP | POS |
+|--------|:---:|:---:|
+| Keyword baseline | 25.0% | 8.3% |
+| Schema-aware agent (no planning) | 91.7% | 91.7% |
+| **Final agent (with query planning)** | **100%** | **100%** |
+
+The keyword baseline **collapses** on the second schema (25% → 8.3%) because its
+SQL is tied to one set of table names. The final agent scores **100% on both** —
+evidence that it understands the *question*, not one schema.
+
+### Gap & Capability Analysis
+
+| Metric | ERP | POS |
+|--------|:---:|:---:|
+| Capability-status accuracy (5 cases) | **5/5** | **5/5** |
+
+Status decisions (SUPPORTED / PARTIALLY / NOT SUPPORTED) are grounded in the
+discovered schema; adding this mode left the Data Analysis result **unchanged at
+100%/100%**.
+
+**The single biggest lever** was schema discovery + business context (LLM baseline
+58% → 92%). **Query planning** closed the last gap (92% → 100%). Full
+iteration-by-iteration evidence is in the [Improvement Changelog](#improvement-changelog).
 
 ---
 
@@ -67,34 +116,54 @@ contains; availability is always grounded in real schema evidence.
 
 ---
 
-## How it works
+## Architecture
+
+The agent has two modes. A business question flows through the **Data Analysis**
+pipeline; a capability question flows through **Gap Analysis**.
 
 ```
-question
-  -> query planner
-       |
-       |-- SIMPLE  -> the pipeline below
-       |
-       `-- COMPLEX -> ordered sub-questions
-                       -> each answered by the pipeline below
-                       -> verified data frames
-                       -> deterministic computation (Python, no LLM)
-                       -> final verified answer
+                 Data Analysis                              Gap Analysis
+                 =============                              ============
 
-  simple pipeline:
-    schema discovery + business context      (adapt to this database)
-    -> SQL generation (LLM)
-    -> read-only validation                  (SELECT-only guard)
-    -> execute
-    -> result verification                    (does this answer the question?)
-    -> self-correction on failure (capped)     (diagnose + retry)
-    -> deterministic presentation             (format exact values, no rewrite)
-    -> answer + SQL + data source
+   User question (business question)              Capability question
+            |                                       ("Can we measure churn?")
+            v                                                |
+        AI Agent                                             v
+            |                                         Schema Analysis
+            v                                                |
+     Schema Discovery                                        v
+            |                                          Gap Detection
+            v                                     (required data vs. schema,
+      Query Planning                              decided deterministically)
+      (SIMPLE / COMPLEX)                                     |
+            |                                                v
+            v                                            Evidence
+     SQL Generation (LLM)                          (real tables / columns)
+            |                                                |
+            v                                                v
+   Read-only Validation                             Recommendation
+      (SELECT-only guard)                        (impact + what to add)
+            |
+            v
+        Execution
+            |
+            v
+    Result Verification
+   (does it answer the question?)
+            |
+            v
+   Answer / Visualization
+   (verified value, table or chart)
 ```
 
-Each bracketed step is a flag on `AnalystAgent`, so the evaluation harness can run
-the agent with iterations turned on cumulatively and measure the contribution of
-each one.
+**Complex questions** (e.g. "which product declined for three months while stock
+rose?") take a branch inside Query Planning: the agent decomposes them into simple
+sub-queries, runs each through the pipeline, collects the **verified data frames**,
+and computes the final answer in **deterministic Python** — never letting the LLM
+synthesize the result.
+
+Every pipeline step is a toggleable flag on `AnalystAgent`, so the evaluation
+harness can turn capabilities on cumulatively and measure each one's contribution.
 
 ### Why it is "agentic" and not just a text-to-SQL chatbot
 
