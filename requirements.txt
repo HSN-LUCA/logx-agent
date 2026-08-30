@@ -17,8 +17,3 @@ streamlit==1.46.0
 
 # --- Optional: SQL Server connectivity (not needed for the SQLite demo/eval) ---
 pyodbc==5.2.0
-
-# --- Optional: voice input / text-to-speech features in the UI ---
-gTTS==2.5.4
-SpeechRecognition==3.14.3
-streamlit-webrtc==0.63.3
