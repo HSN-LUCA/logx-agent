@@ -235,6 +235,38 @@ and schema rather than relying on one fixed schema.
 
 ---
 
+## Live questions vs. the evaluation set
+
+A common question: *"Are the answers stored in a JSON file? If a question isn't in
+it, is there no answer?"* No. Here is what each artifact actually is:
+
+- **The database (`erp.db` / `pos.db`) is the only source of truth.** Every user
+  question — in the app or the demo — is answered by generating SQL and running it
+  against the database, live. The answer comes from query execution, never from a
+  lookup file.
+- **`ground_truth.json` / `ground_truth_pos.json` are an answer key for *testing
+  only*.** They hold the correct answers to the fixed 12 evaluation questions,
+  computed once from the database, so the harness can *grade* the agent. **The
+  agent never reads these files at runtime.**
+- **`traces/*.json` are recordings of past runs** for inspection — also not used
+  at runtime.
+
+So the agent answers **any** question the data can support, whether or not it
+appears in a JSON file. (The line chart and the conversational follow-ups in the
+demo are examples — none of them are in any ground-truth file.) The two things are
+deliberately separate:
+
+- **Open-ended use** — any question → schema discovery → SQL → read-only
+  validation → execution → verification → answer, with the SQL shown as evidence.
+- **Measured evaluation** — the fixed 12 questions graded against
+  `ground_truth.json`, so the reported 100%/100% is backed by a real scoring
+  comparison rather than a claim.
+
+If the data for a question does not exist, the agent does **not** invent it — that
+is what result verification and the Gap Analysis mode are for.
+
+---
+
 ## Evaluation
 
 - **Same 12 questions, same scoring, every runner** (`eval/evaluate.py`).
