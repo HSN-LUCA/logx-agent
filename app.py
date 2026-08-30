@@ -567,9 +567,29 @@ def process_gap(capability):
 
 
 # --- app -------------------------------------------------------------------- #
+def _current_context():
+    """Build conversation context from the last VERIFIED turn on the SAME schema
+    (Iteration 9). Returns None if there is no usable previous turn."""
+    from src.conversation import build_context_from_result
+
+    schema = st.session_state.schema_label
+    for question, resp, sch in reversed(st.session_state.chat_history):
+        if sch != schema:
+            continue
+        if not resp.get("success") or resp.get("needs_clarification"):
+            continue
+        # Prefer the resolved question actually answered, if present.
+        asked = resp.get("resolved_question") or question
+        return build_context_from_result(
+            SCHEMAS[schema]["schema_id"], asked, resp
+        )
+    return None
+
+
 def process_question(question):
     with st.spinner("Analyzing, planning, generating SQL, verifying result..."):
-        resp = st.session_state.agent.query(question)
+        context = _current_context()
+        resp = st.session_state.agent.query(question, context=context)
         st.session_state.chat_history.append(
             (question, resp, st.session_state.schema_label)
         )
@@ -599,11 +619,13 @@ def main():
         schema_label = st.selectbox("Database", list(SCHEMAS.keys()),
                                     label_visibility="collapsed")
 
-        # (Re)build the agent when the schema changes.
+        # (Re)build the agent when the schema changes; reset conversation so
+        # context never carries across databases.
         if st.session_state.schema_label != schema_label:
             try:
                 st.session_state.agent = get_agent(schema_label)
                 st.session_state.schema_label = schema_label
+                st.session_state.chat_history = []
             except Exception as e:
                 st.session_state.agent = None
                 st.error(f"Could not initialize agent: {e}")
@@ -676,13 +698,31 @@ def main():
                 st.info("This looks like a business capability question. "
                         "Consider switching to **Gap Analysis & Advisor** for a "
                         "schema-grounded capability assessment.")
-            if st.button("Analyze", type="primary") and user_q:
+            c_analyze, c_clear = st.columns([1, 1])
+            with c_analyze:
+                analyze_clicked = st.button("Analyze", type="primary")
+            with c_clear:
+                if st.button("Clear Conversation"):
+                    st.session_state.chat_history = []
+                    st.rerun()
+            if analyze_clicked and user_q:
                 process_question(user_q)
 
             if st.session_state.chat_history:
                 st.divider()
                 question, resp, schema = st.session_state.chat_history[-1]
+                if resp.get("was_followup") and resp.get("resolved_question") \
+                        and not resp.get("needs_clarification"):
+                    st.caption(f"Understood as: *{resp['resolved_question']}*")
                 render_response(question, resp, schema)
+
+                # Short conversation view (current session, You / Agent).
+                if len(st.session_state.chat_history) > 1:
+                    with st.expander("Conversation", expanded=False):
+                        for q, r, _ in st.session_state.chat_history:
+                            st.markdown(f"**You:** {q}")
+                            ans = str(r.get("answer") or "").split("\n")[0]
+                            st.markdown(f"**Agent:** {ans[:160]}")
 
         else:  # Gap Analysis (Iteration 8)
             st.caption("Ask whether this database can support a business capability. "

@@ -365,16 +365,71 @@ class AnalystAgent:
             )
 
     # ---- Orchestration --------------------------------------------------- #
-    def query(self, question):
+    def query(self, question, context=None):
+        """Answer a question. `context` (optional) is a ConversationContext for
+        resolving conversational follow-ups.
+
+        When `context` is None (the default, and what the evaluation harness
+        uses), behavior is identical to before Iteration 9. When a context is
+        provided and the question looks like a follow-up, it is first resolved
+        into a standalone question (or a clarification request). The resolver
+        only rewrites/clarifies; the standalone question then goes through the
+        SAME pipeline and the database is re-queried and re-verified. The
+        previous answer is context, never the source of truth.
+        """
         start = time.perf_counter()
+
+        resolved_question = question
+        original_question = question
+        if context is not None:
+            from src.conversation import resolve_followup
+
+            outcome = resolve_followup(question, context, self._chat)
+            if outcome["kind"] == "clarify":
+                # Ambiguous reference: ask the user, do NOT query the database.
+                return self._clarify_result(outcome["message"], question, start)
+            resolved_question = outcome["question"]
 
         # Iteration 7: route complex, multi-step questions to the planner.
         if self.use_query_planning:
-            route, pattern = self.plan_query(question)
+            route, pattern = self.plan_query(resolved_question)
             if route == "complex":
-                return self._run_complex(question, pattern, start)
+                result = self._run_complex(resolved_question, pattern, start)
+                return self._tag_conversation(result, original_question, resolved_question)
 
-        return self._run_simple(question, start)
+        result = self._run_simple(resolved_question, start)
+        return self._tag_conversation(result, original_question, resolved_question)
+
+    def _tag_conversation(self, result, original_question, resolved_question):
+        """Attach follow-up metadata for the UI (additive; harmless if unused)."""
+        result["original_question"] = original_question
+        result["resolved_question"] = resolved_question
+        result["was_followup"] = (resolved_question != original_question)
+        return result
+
+    def _clarify_result(self, message, question, start):
+        return {
+            "success": True,
+            "answer": message,
+            "sql_query": None,
+            "chart_data": None,
+            "has_chart": False,
+            "verified": False,
+            "attempts": 0,
+            "self_corrections": 0,
+            "reason": "clarification requested (ambiguous reference)",
+            "error": None,
+            "response_time_s": round(time.perf_counter() - start, 3),
+            "query_type": "clarification",
+            "steps": 0,
+            "workflow": ["Understanding question", "Ambiguous reference",
+                         "Asking for clarification"],
+            "intermediate_frames": {},
+            "original_question": question,
+            "resolved_question": question,
+            "was_followup": True,
+            "needs_clarification": True,
+        }
 
     def _run_simple(self, question, start):
         attempts = 0
