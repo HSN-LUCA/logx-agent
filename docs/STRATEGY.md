@@ -154,6 +154,22 @@ Data Analysis pipeline or its results.
 ideal (occasionally reporting SUPPORTED as PARTIALLY). Documented as a future
 improvement, not patched, to avoid scope creep.
 
+### Iteration 9 — Conversational context & follow-up questions (additive, read-only)
+**Why:** users naturally ask follow-ups ("which month was highest?", "what about
+the second one?") that depend on the previous turn.
+**Build:** a small `ConversationContext` (latest verified turn + a <=10-row result
+preview, session-scoped). A follow-up is resolved by the LLM into a STANDALONE
+question (or a clarification), then goes through the existing SQL -> validation ->
+execution -> verification pipeline. The previous answer is context, never truth;
+the database is re-queried and re-verified every turn. `query(question,
+context=None)` stays backward-compatible, so the evaluation harness is unaffected.
+Ambiguous bare-pronoun references ask for clarification instead of guessing.
+**Evidence:** conversation 5/5, reference resolution 5/5, SQL validity 5/5, 0
+execution errors; Data Analysis stays 100%/100% and Gap stays 5/5. The POS
+follow-up returns POS's real highest month (Feb, not ERP's June), confirming
+re-query rather than reuse.
+**Metric to watch:** conversation accuracy and no regression on prior evals.
+
 ---
 
 ## 5a. How to run each stage (actual commands)
@@ -227,6 +243,7 @@ measured end-to-end result. Working baseline first, generalization second.
 | Iteration 6 | Ran same questions on POS schema | ERP 91.7%, POS 91.7% | Generalization confirmed |
 | Iteration 7 | Query planning + deterministic computation | ERP 100%, POS 100% | Solved the challenge case; kept |
 | Iteration 8 | Gap & Capability Analysis (additive, read-only) | Gap status 5/5 both schemas; Data Analysis unchanged 100%/100% | Kept; extends scope to capability assessment |
+| Iteration 9 | Conversational context & follow-ups (additive, read-only) | Conversation 5/5; Data Analysis 100%/100% and Gap 5/5 unchanged | Kept; follow-ups re-queried and verified, previous answer is context not truth |
 | Final | Combined the changes that worked | ERP 100%, POS 100% | Main contribution |
 
 See the README for the full measured changelog with per-iteration evidence.

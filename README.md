@@ -104,6 +104,9 @@ input and text-to-speech). That original app is the honest starting point.
 - A **Gap Analysis & Advisor** mode (`src/gap_analysis.py`) that determines
   whether the connected database can support a business capability, grounded in
   the discovered schema, and recommends what to add (read-only; analysis only).
+- **Conversational context** (`src/conversation.py`) so users can ask natural
+  follow-up questions; each follow-up is resolved to a standalone question and
+  re-queried + re-verified (the previous answer is context, not truth).
 
 ---
 
@@ -120,6 +123,40 @@ In Gap Analysis & Advisor the LLM proposes the *data concepts a capability requi
 **deterministic code decides what actually exists** by matching those concepts
 against the discovered schema. The model never asserts what the database
 contains; availability is always grounded in real schema evidence.
+
+---
+
+## Conversational follow-ups
+
+Within a session, the Data Analysis mode understands natural follow-up questions:
+
+> **You:** What were our monthly sales in 2026?
+> **Agent:** *(monthly breakdown)*
+> **You:** Which month was highest? → **June — AED 435,290**
+> **You:** What about the lowest? → **July — AED 244,870**
+
+**Does the agent "remember" its previous answers?** It maintains short-term
+conversational context, but it does **not** trust its previous answer as truth.
+It uses the previous verified result only to *understand the follow-up*, then
+rewrites it into a standalone question, queries the database again, and verifies
+the new result. The previous answer is context; the database is the source of
+truth.
+
+The flow for every follow-up:
+
+```
+conversation context (latest verified turn, <=10-row result preview)
+  -> resolve the reference into a standalone question (LLM rewrites only)
+  -> the existing pipeline: plan -> SQL -> read-only validation
+     -> execute -> result verification
+  -> answer  -> update context
+```
+
+The LLM resolver never answers the question and never touches the database — it
+only rewrites the follow-up or, if a reference is genuinely ambiguous, asks for
+clarification instead of guessing (e.g. *"Which product do you mean — Laptop or
+Monitor?"*). Context is session-scoped, resets on a new conversation or a schema
+switch, and everything stays read-only.
 
 ---
 
@@ -233,6 +270,7 @@ All numbers below are measured on the fixed 12-question set (model
 | Iteration 7 | Query planning: route multi-step questions to sub-queries + **deterministic** computation over verified data frames | **100% (12/12)** | **Kept.** Solved the challenge case (Q12). The single-query agent produced invalid window-function SQL; decomposing into simple sub-queries and computing the trend in Python fixes it with zero execution errors. |
 | Final | Grounding + validation + verification + self-correction + deterministic presentation + query planning | ERP **100%**, POS **100%** | Main contribution: schema-aware grounding that generalizes across schemas, human-readable output that preserves exact values, and decomposition for multi-step questions. |
 | Iteration 8 | Added Gap & Capability Analysis (separate mode): LLM proposes required data concepts, deterministic code matches them to the discovered schema to decide SUPPORTED / PARTIALLY / NOT SUPPORTED | Gap status accuracy **5/5** on both ERP and POS; Data Analysis result **unchanged at 100%/100%** | Additive and read-only. Extends the project from answering questions to assessing what a database *cannot* yet answer, with schema-grounded evidence. |
+| Iteration 9 | Added conversational context: a follow-up ("which month was highest?") is resolved into a standalone question using a small verified-result context, then re-queried and re-verified through the existing pipeline | Conversation **5/5**, reference resolution 5/5, SQL validity 5/5, 0 execution errors; Data Analysis **100%/100%** and Gap **5/5** both unchanged | Additive and read-only. The previous answer is *context, not truth* — the database is queried again every turn. Ambiguous references ask for clarification instead of guessing. |
 
 ### Headline comparison
 
@@ -279,7 +317,9 @@ All numbers below are measured on the fixed 12-question set (model
 | `src/business_context.py` | Per-schema business glossary/notes |
 | `src/query_planner.py` | Decomposition patterns + deterministic computation for multi-step questions |
 | `src/gap_analysis.py` | Gap & Capability Analysis (schema-grounded, read-only) |
+| `src/conversation.py` | Short-term conversation context + follow-up resolution |
 | `eval/gap_questions.py` / `eval/gap_evaluate.py` | Separate Gap Analysis evaluation set + harness |
+| `eval/conversation_questions.py` / `eval/conversation_eval.py` | Separate conversational follow-up evaluation set + harness |
 | `src/ai_agent.py` | Original single-chain agent, used as the plain-LLM baseline |
 | `data/erp_database.py` / `data/pos_database.py` | Seeded, reproducible demo databases |
 | `eval/eval_questions.py` / `eval/eval_questions_pos.py` | The fixed question sets |

@@ -159,6 +159,33 @@ deterministic grounding.)
 
 ---
 
+## 5c. Conversational follow-up evaluation (Iteration 9)
+
+A **separate** evaluation of multi-turn follow-up questions. Each scenario runs
+turn 1, builds context from the verified result, then runs the follow-up with
+that context. It is read-only (needs an API key for the follow-up resolution).
+
+```bash
+python -m eval.conversation_eval
+```
+
+Expected (measured):
+
+```
+Conversation accuracy:      5/5 (100.0%)
+Reference resolution:       5/5
+SQL validity (follow-ups):  5/5
+Verification success:       5/5
+Execution errors:           0/5
+```
+
+Note: the follow-up re-queries the database each turn (the previous answer is
+context, not truth). On the POS scenario the "highest month" is 2026-02 — POS's
+actual peak, different from ERP's June — which confirms the agent queries the
+real schema rather than reusing the previous context.
+
+---
+
 ## 6. What output to expect
 
 `evaluate.py` prints a JSON summary and writes two files per runner:
