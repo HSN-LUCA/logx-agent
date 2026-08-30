@@ -652,7 +652,7 @@ def main():
             st.info("Select a database in the sidebar to begin.")
             return
 
-        mode = st.radio("Mode", ["Data Analysis", "Gap Analysis"],
+        mode = st.radio("Mode", ["Data Analysis", "Gap Analysis & Advisor"],
                         horizontal=True, label_visibility="collapsed",
                         key="mode")
 
@@ -674,8 +674,8 @@ def main():
             # Non-blocking hint: never reroutes, just suggests the other mode.
             if user_q and looks_like_capability_question(user_q):
                 st.info("This looks like a business capability question. "
-                        "Consider switching to **Gap Analysis** for a schema-grounded "
-                        "capability assessment.")
+                        "Consider switching to **Gap Analysis & Advisor** for a "
+                        "schema-grounded capability assessment.")
             if st.button("Analyze", type="primary") and user_q:
                 process_question(user_q)
 

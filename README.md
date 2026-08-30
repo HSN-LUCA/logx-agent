@@ -66,7 +66,7 @@ Actual step-by-step execution traces for representative runs are in
 analysis — so the agent's behavior can be inspected directly, not just its final
 answers.
 
-### Gap & Capability Analysis
+### Gap Analysis & Advisor
 
 | Metric | ERP | POS |
 |--------|:---:|:---:|
@@ -101,9 +101,9 @@ input and text-to-speech). That original app is the honest starting point.
   different **POS database** (`data/pos_database.py`) for the generalization test.
 - A fixed **evaluation set** with verified ground truth and an **automated scoring
   harness** (`eval/`).
-- A **Gap & Capability Analysis** mode (`src/gap_analysis.py`) that determines
+- A **Gap Analysis & Advisor** mode (`src/gap_analysis.py`) that determines
   whether the connected database can support a business capability, grounded in
-  the discovered schema (read-only; analysis only).
+  the discovered schema, and recommends what to add (read-only; analysis only).
 
 ---
 
@@ -111,12 +111,12 @@ input and text-to-speech). That original app is the honest starting point.
 
 - **Data Analysis** — ask a business question, get a verified, evidence-backed
   answer (chart / table / value).
-- **Gap & Capability Analysis** — ask whether the database can support a
+- **Gap Analysis & Advisor** — ask whether the database can support a
   capability ("Can our ERP measure customer churn?"). The agent inspects the
   actual schema and reports what is available, what is missing, the evidence, the
   business impact, and a recommendation. It never modifies the database.
 
-In Gap Analysis the LLM proposes the *data concepts a capability requires*, but
+In Gap Analysis & Advisor the LLM proposes the *data concepts a capability requires*, but
 **deterministic code decides what actually exists** by matching those concepts
 against the discovered schema. The model never asserts what the database
 contains; availability is always grounded in real schema evidence.
@@ -126,11 +126,11 @@ contains; availability is always grounded in real schema evidence.
 ## Architecture
 
 The agent has two modes. A business question flows through the **Data Analysis**
-pipeline; a capability question flows through **Gap Analysis**.
+pipeline; a capability question flows through **Gap Analysis & Advisor**.
 
 ```
-                 Data Analysis                              Gap Analysis
-                 =============                              ============
+                 Data Analysis                          Gap Analysis & Advisor
+                 =============                          ======================
 
    User question (business question)              Capability question
             |                                       ("Can we measure churn?")
