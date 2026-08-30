@@ -31,7 +31,7 @@
       }
     ]
   },
-  "response_time_s": 4.435,
+  "response_time_s": 4.176,
   "llm_calls": [
     {
       "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
@@ -47,7 +47,7 @@
     },
     {
       "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: For every product, the stock on hand in each month. Return three columns: product name, month (YYYY-MM), units on hand.\nSQL: SELECT p.product_name, s.month, s.units_on_hand\nFROM products p\nJOIN stock s ON p.product_id = s.product_id\nWHERE s.month BETWEEN '2026-01' AND '2026-08'\nORDER BY p.product_name, s.month\nRESULT (up to 10 rows):\n  product_name   month  units_on_hand\n  27in Monitor 2026-01            120\n  27in Monitor 2026-02            116\n  27in Monitor 2026",
-      "response_preview": "YES: The result provides the stock on hand for every product in each month between January 2026 and August 2026, as requested in the business question."
+      "response_preview": "YES: The result provides the stock on hand for every product in each month between January 2026 and August 2026, as requested."
     }
   ],
   "intermediate_frames": {
@@ -193,6 +193,6 @@
     }
   },
   "deterministic_computation": "Final answer computed in Python from the verified intermediate frames above (no LLM synthesis).",
-  "captured_at": "2026-08-29T17:33:21.696384+00:00",
+  "captured_at": "2026-08-30T14:06:14.986892+00:00",
   "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
 }

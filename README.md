@@ -62,9 +62,10 @@ one fixed schema. (A 12-question set is strong evidence of generalization, not a
 proof of complete "understanding.")
 
 Actual step-by-step execution traces for representative runs are in
-[`traces/`](traces/) — including the complex-query decomposition and the gap
-analysis — so the agent's behavior can be inspected directly, not just its final
-answers.
+[`traces/`](traces/) — including the complex-query decomposition, the gap
+analysis, and a multi-turn conversation (showing each follow-up being resolved
+into a standalone question and re-verified) — so the agent's behavior can be
+inspected directly, not just its final answers.
 
 ### Gap Analysis & Advisor
 
@@ -358,7 +359,7 @@ All numbers below are measured on the fixed 12-question set (model
 | `eval/ground_truth.py` | Computes verified answers from the databases |
 | `eval/evaluate.py` | Automated scoring harness (all runners, both schemas) |
 | `eval/export_traces.py` | Exports genuine execution traces from live runs |
-| `traces/` | Real step-by-step execution traces (data analysis, complex query, POS, gap analysis) |
+| `traces/` | Real step-by-step execution traces (simple, ranking, complex query, POS generalization, gap analysis, conversation) |
 | `docs/STRATEGY.md` | The build strategy and iteration roadmap |
 | `docs/REPRODUCTION.md` | Clean-environment reproduction guide |
 

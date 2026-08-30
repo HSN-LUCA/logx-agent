@@ -44,7 +44,7 @@
       }
     ]
   },
-  "response_time_s": 1.95,
+  "response_time_s": 1.858,
   "llm_calls": [
     {
       "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE basket_items: basket_id (INTEGER), receipt_id (INTEGER), item_id (INTEGER), units (INTEGER), unit_price (REAL), amount (REAL)\n  PK: basket_id\n  FK: item_id -> items.item_id\n  FK: receipt_id -> sales_receipts.receipt_id\n  sample: basket_id=1, receipt_id=1, item_id=7, units=5, unit_price=1650.0, amount=8250.0\nTABLE inventory_snapshots: snap_id (INTEGER), item_id (INTEGER), period (TEXT), qt",
@@ -55,6 +55,6 @@
       "response_preview": "YES: The result provides the top 3 products by total revenue."
     }
   ],
-  "captured_at": "2026-08-29T17:33:23.654000+00:00",
+  "captured_at": "2026-08-30T14:06:16.859604+00:00",
   "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
 }

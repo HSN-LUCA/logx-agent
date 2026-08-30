@@ -132,6 +132,66 @@ def make_engine_for(schema_id):
     return make_engine(db_for(schema_id))
 
 
+def trace_conversation(name, turns, schema_id):
+    """Export a genuine multi-turn conversation trajectory (Iteration 9).
+
+    Runs each turn against the real agent, carrying a ConversationContext built
+    from the previous verified result. Captures, per turn: the user's original
+    question, the resolver's rewritten standalone question (the follow-up
+    resolution step), the SQL, read-only validation, verification outcome, and
+    the final answer. Shows that the follow-up is re-queried and re-verified —
+    the previous answer is context, not truth.
+    """
+    from src.conversation import build_context_from_result
+
+    agent = AnalystAgent(
+        db_uri=db_for(schema_id), schema_id=schema_id,
+        use_schema_context=True, use_validation=True, use_verification=True,
+        use_self_correction=True, use_business_analysis=True, use_query_planning=True,
+    )
+
+    context = None
+    captured = []
+    for i, user_message in enumerate(turns):
+        rec = _Recorder(agent)
+        resp = agent.query(user_message, context=context)
+        captured.append({
+            "turn": i + 1,
+            "user_message": user_message,
+            "is_followup": bool(resp.get("was_followup")),
+            "resolver": {
+                "original_question": resp.get("original_question"),
+                "resolved_standalone_question": resp.get("resolved_question"),
+                "note": ("The resolver only rewrites the follow-up into a "
+                         "standalone question; it does not answer it."),
+            },
+            "sql_generated": resp.get("sql_query"),
+            "read_only_validated": (resp.get("sql_query") is not None
+                                    or resp.get("query_type") == "complex"),
+            "verified": resp.get("verified"),
+            "query_type": resp.get("query_type"),
+            "final_answer": resp.get("answer"),
+            "result_preview": _df_preview(resp.get("chart_data")),
+            "llm_calls": rec.calls,
+        })
+        # Build context from this verified turn for the next follow-up.
+        asked = resp.get("resolved_question") or user_message
+        context = build_context_from_result(schema_id, asked, resp)
+
+    trace = {
+        "mode": "conversation",
+        "schema_id": schema_id,
+        "principle": ("Each follow-up is resolved into a standalone question and "
+                      "then re-queried and re-verified against the database. The "
+                      "previous answer is context, never the source of truth."),
+        "flow": ("user follow-up -> resolve reference into standalone question "
+                 "-> SQL -> read-only validation -> execution -> verification "
+                 "-> final answer -> update context"),
+        "turns": captured,
+    }
+    _write(name, trace)
+
+
 def main():
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("Set OPENAI_API_KEY (in .env) before exporting traces.")
@@ -148,6 +208,11 @@ def main():
                         "What are the top 3 products by total revenue?", "pos")
     trace_gap_analysis("gap_analysis.json",
                        "Can our ERP measure customer churn?", "erp")
+    trace_conversation("conversation.json", [
+        "What were our monthly sales in 2026?",
+        "Which month was highest?",
+        "What about the lowest?",
+    ], "erp")
     print("\nAll traces exported to traces/")
 
 

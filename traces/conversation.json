@@ -1,0 +1,196 @@
+{
+  "mode": "conversation",
+  "schema_id": "erp",
+  "principle": "Each follow-up is resolved into a standalone question and then re-queried and re-verified against the database. The previous answer is context, never the source of truth.",
+  "flow": "user follow-up -> resolve reference into standalone question -> SQL -> read-only validation -> execution -> verification -> final answer -> update context",
+  "turns": [
+    {
+      "turn": 1,
+      "user_message": "What were our monthly sales in 2026?",
+      "is_followup": false,
+      "resolver": {
+        "original_question": "What were our monthly sales in 2026?",
+        "resolved_standalone_question": "What were our monthly sales in 2026?",
+        "note": "The resolver only rewrites the follow-up into a standalone question; it does not answer it."
+      },
+      "sql_generated": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS monthly_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY strftime('%Y-%m', invoice_date)\nORDER BY month",
+      "read_only_validated": true,
+      "verified": true,
+      "query_type": "simple",
+      "final_answer": "8 results, by monthly sales:\n1. 2026-01 - 286,260\n2. 2026-02 - 424,050\n3. 2026-03 - 308,330\n4. 2026-04 - 255,640\n5. 2026-05 - 265,990\n6. 2026-06 - 435,290\n7. 2026-07 - 244,870\n8. 2026-08 - 357,450",
+      "result_preview": {
+        "columns": [
+          "month",
+          "monthly_sales"
+        ],
+        "row_count": 8,
+        "rows": [
+          {
+            "month": "2026-01",
+            "monthly_sales": 286260.0
+          },
+          {
+            "month": "2026-02",
+            "monthly_sales": 424050.0
+          },
+          {
+            "month": "2026-03",
+            "monthly_sales": 308330.0
+          },
+          {
+            "month": "2026-04",
+            "monthly_sales": 255640.0
+          },
+          {
+            "month": "2026-05",
+            "monthly_sales": 265990.0
+          },
+          {
+            "month": "2026-06",
+            "monthly_sales": 435290.0
+          },
+          {
+            "month": "2026-07",
+            "monthly_sales": 244870.0
+          },
+          {
+            "month": "2026-08",
+            "monthly_sales": 357450.0
+          }
+        ]
+      },
+      "llm_calls": [
+        {
+          "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+          "response_preview": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS monthly_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY strftime('%Y-%m', invoice_date)\nORDER BY month;"
+        },
+        {
+          "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: What were our monthly sales in 2026?\nSQL: SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS monthly_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY strftime('%Y-%m', invoice_date)\nORDER BY month\nRESULT (up to 10 rows):\n  month  monthly_sales\n2026-01       286260.0\n2026-02       424050.0\n2026-03       308330.0\n2026-04       255640.0\n2026-05   ",
+          "response_preview": "YES: The result provides the monthly sales figures for 2026, which directly answers the question about monthly sales in that year."
+        },
+        {
+          "prompt_preview": "You resolve conversational follow-up questions for a data analyst. Given the previous turn's context and a NEW user message, rewrite the new message into a SINGLE, SELF-CONTAINED question that can be answered on its own, carrying over the relevant time period, entity, or metric from the context.\n\nSTRICT RULES:\n- Do NOT answer the question. Output only the rewritten question.\n- Use the previous result rows only to resolve references such as 'the second one' or 'that product' (e.g. replace 'the second one' with the actual name from row 2). You are NOT stating that value is the answer; you are ju",
+          "response_preview": "Which month had the highest monthly sales in 2026?"
+        },
+        {
+          "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+          "response_preview": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales DESC\nLIMIT 1;"
+        },
+        {
+          "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: Which month had the highest monthly sales in 2026?\nSQL: SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales DESC\nLIMIT 1\nRESULT (up to 10 rows):\n  month  total_sales\n2026-06     435290.0\n\nDoes the result correctly and directly answer the question?",
+          "response_preview": "YES: The result shows that June 2026 had the highest monthly sales, with a total of $435,290."
+        },
+        {
+          "prompt_preview": "You resolve conversational follow-up questions for a data analyst. Given the previous turn's context and a NEW user message, rewrite the new message into a SINGLE, SELF-CONTAINED question that can be answered on its own, carrying over the relevant time period, entity, or metric from the context.\n\nSTRICT RULES:\n- Do NOT answer the question. Output only the rewritten question.\n- Use the previous result rows only to resolve references such as 'the second one' or 'that product' (e.g. replace 'the second one' with the actual name from row 2). You are NOT stating that value is the answer; you are ju",
+          "response_preview": "Which month had the lowest monthly sales in 2026?"
+        },
+        {
+          "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+          "response_preview": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1;"
+        },
+        {
+          "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: Which month had the lowest monthly sales in 2026?\nSQL: SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1\nRESULT (up to 10 rows):\n  month  total_sales\n2026-07     244870.0\n\nDoes the result correctly and directly answer the question?",
+          "response_preview": "YES: The result shows that July 2026 had the lowest monthly sales, with a total of 244,870.0."
+        }
+      ]
+    },
+    {
+      "turn": 2,
+      "user_message": "Which month was highest?",
+      "is_followup": true,
+      "resolver": {
+        "original_question": "Which month was highest?",
+        "resolved_standalone_question": "Which month had the highest monthly sales in 2026?",
+        "note": "The resolver only rewrites the follow-up into a standalone question; it does not answer it."
+      },
+      "sql_generated": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales DESC\nLIMIT 1",
+      "read_only_validated": true,
+      "verified": true,
+      "query_type": "simple",
+      "final_answer": "month: 2026-06; total sales: 435,290.",
+      "result_preview": {
+        "columns": [
+          "month",
+          "total_sales"
+        ],
+        "row_count": 1,
+        "rows": [
+          {
+            "month": "2026-06",
+            "total_sales": 435290.0
+          }
+        ]
+      },
+      "llm_calls": [
+        {
+          "prompt_preview": "You resolve conversational follow-up questions for a data analyst. Given the previous turn's context and a NEW user message, rewrite the new message into a SINGLE, SELF-CONTAINED question that can be answered on its own, carrying over the relevant time period, entity, or metric from the context.\n\nSTRICT RULES:\n- Do NOT answer the question. Output only the rewritten question.\n- Use the previous result rows only to resolve references such as 'the second one' or 'that product' (e.g. replace 'the second one' with the actual name from row 2). You are NOT stating that value is the answer; you are ju",
+          "response_preview": "Which month had the highest monthly sales in 2026?"
+        },
+        {
+          "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+          "response_preview": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales DESC\nLIMIT 1;"
+        },
+        {
+          "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: Which month had the highest monthly sales in 2026?\nSQL: SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales DESC\nLIMIT 1\nRESULT (up to 10 rows):\n  month  total_sales\n2026-06     435290.0\n\nDoes the result correctly and directly answer the question?",
+          "response_preview": "YES: The result shows that June 2026 had the highest monthly sales, with a total of $435,290."
+        },
+        {
+          "prompt_preview": "You resolve conversational follow-up questions for a data analyst. Given the previous turn's context and a NEW user message, rewrite the new message into a SINGLE, SELF-CONTAINED question that can be answered on its own, carrying over the relevant time period, entity, or metric from the context.\n\nSTRICT RULES:\n- Do NOT answer the question. Output only the rewritten question.\n- Use the previous result rows only to resolve references such as 'the second one' or 'that product' (e.g. replace 'the second one' with the actual name from row 2). You are NOT stating that value is the answer; you are ju",
+          "response_preview": "Which month had the lowest monthly sales in 2026?"
+        },
+        {
+          "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+          "response_preview": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1;"
+        },
+        {
+          "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: Which month had the lowest monthly sales in 2026?\nSQL: SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1\nRESULT (up to 10 rows):\n  month  total_sales\n2026-07     244870.0\n\nDoes the result correctly and directly answer the question?",
+          "response_preview": "YES: The result shows that July 2026 had the lowest monthly sales, with a total of 244,870.0."
+        }
+      ]
+    },
+    {
+      "turn": 3,
+      "user_message": "What about the lowest?",
+      "is_followup": true,
+      "resolver": {
+        "original_question": "What about the lowest?",
+        "resolved_standalone_question": "Which month had the lowest monthly sales in 2026?",
+        "note": "The resolver only rewrites the follow-up into a standalone question; it does not answer it."
+      },
+      "sql_generated": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1",
+      "read_only_validated": true,
+      "verified": true,
+      "query_type": "simple",
+      "final_answer": "month: 2026-07; total sales: 244,870.",
+      "result_preview": {
+        "columns": [
+          "month",
+          "total_sales"
+        ],
+        "row_count": 1,
+        "rows": [
+          {
+            "month": "2026-07",
+            "total_sales": 244870.0
+          }
+        ]
+      },
+      "llm_calls": [
+        {
+          "prompt_preview": "You resolve conversational follow-up questions for a data analyst. Given the previous turn's context and a NEW user message, rewrite the new message into a SINGLE, SELF-CONTAINED question that can be answered on its own, carrying over the relevant time period, entity, or metric from the context.\n\nSTRICT RULES:\n- Do NOT answer the question. Output only the rewritten question.\n- Use the previous result rows only to resolve references such as 'the second one' or 'that product' (e.g. replace 'the second one' with the actual name from row 2). You are NOT stating that value is the answer; you are ju",
+          "response_preview": "Which month had the lowest monthly sales in 2026?"
+        },
+        {
+          "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
+          "response_preview": "SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1;"
+        },
+        {
+          "prompt_preview": "You are verifying whether a SQL result answers a business question. Answer strictly with 'YES' or 'NO: <short reason>'.\n\nQUESTION: Which month had the lowest monthly sales in 2026?\nSQL: SELECT strftime('%Y-%m', invoice_date) AS month, SUM(line_total) AS total_sales\nFROM invoices\nJOIN invoice_lines ON invoices.invoice_id = invoice_lines.invoice_id\nWHERE invoice_date BETWEEN '2026-01-01' AND '2026-08-31'\nGROUP BY month\nORDER BY total_sales\nLIMIT 1\nRESULT (up to 10 rows):\n  month  total_sales\n2026-07     244870.0\n\nDoes the result correctly and directly answer the question?",
+          "response_preview": "YES: The result shows that July 2026 had the lowest monthly sales, with a total of 244,870.0."
+        }
+      ]
+    }
+  ],
+  "captured_at": "2026-08-30T14:06:25.524660+00:00",
+  "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
+}

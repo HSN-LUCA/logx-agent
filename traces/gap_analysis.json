@@ -50,6 +50,6 @@
       "response_preview": "{\n  \"business_impact\": \"Without a customer status field, it may be challenging to accurately measure customer churn.\",\n  \"recommendation\": \"Consider adding a customer status field to the database schema to better track and analyze customer churn.\",\n  \"confidence\": \"Medium\"\n}"
     }
   ],
-  "captured_at": "2026-08-29T17:33:25.750446+00:00",
+  "captured_at": "2026-08-30T14:06:18.844571+00:00",
   "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
 }

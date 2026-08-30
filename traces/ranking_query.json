@@ -40,7 +40,7 @@
       }
     ]
   },
-  "response_time_s": 2.616,
+  "response_time_s": 2.244,
   "llm_calls": [
     {
       "prompt_preview": "You are a careful data analyst. Write ONE read-only SQL SELECT query (SQLite dialect) that answers the user's question.\nReturn ONLY the SQL, with no explanation and no markdown fences.\n\nDATABASE SCHEMA:\nTABLE branches: branch_id (INTEGER), branch_name (TEXT), city (TEXT)\n  PK: branch_id\n  sample: branch_id=1, branch_name=Dubai Main, city=Dubai\nTABLE categories: category_id (INTEGER), category_name (TEXT)\n  PK: category_id\n  sample: category_id=1, category_name=Laptops\nTABLE customers: customer_id (INTEGER), customer_name (TEXT), city (TEXT), segment (TEXT)\n  PK: customer_id\n  sample: customer_",
@@ -51,6 +51,6 @@
       "response_preview": "YES: The result provides the top 3 products by total revenue, as requested."
     }
   ],
-  "captured_at": "2026-08-29T17:33:17.254265+00:00",
+  "captured_at": "2026-08-30T14:06:10.796858+00:00",
   "note": "Genuine trace exported from a live run via eval/export_traces.py \u2014 not hand-authored."
 }
