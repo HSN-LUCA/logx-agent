@@ -402,6 +402,39 @@ def metric_card(label, value):
     )
 
 
+# Cap how many rows are RENDERED on screen; the full result is still available
+# for download. Prevents a very large result from bloating the page.
+MAX_DISPLAY_ROWS = 100
+
+
+def render_result_data(df, question, key):
+    """Show the verified result with View / Download CSV / Print actions.
+
+    The download and print always use the EXACT verified dataframe; only the
+    on-screen rendering is capped for large results.
+    """
+    total = len(df)
+    shown = df.head(MAX_DISPLAY_ROWS)
+
+    st.dataframe(shown, use_container_width=True, hide_index=True)
+    if total > MAX_DISPLAY_ROWS:
+        st.caption(f"Showing {MAX_DISPLAY_ROWS} of {total} rows. "
+                   "Download the CSV for the full result.")
+    else:
+        st.caption(f"{total} row{'s' if total != 1 else ''}.")
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button("📥 Download CSV", data=csv,
+                           file_name="result.csv", mime="text/csv",
+                           key=f"dl_{key}", use_container_width=True)
+    with c2:
+        if st.button("🖨️ Print", key=f"print_{key}", use_container_width=True):
+            # Trigger the browser's print dialog.
+            st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
+
+
 # --- response rendering ----------------------------------------------------- #
 def render_response(question, resp, schema_label):
     if not resp.get("success"):
@@ -494,8 +527,9 @@ def render_response(question, resp, schema_label):
 
     df = resp.get("chart_data")
     if df is not None and len(df) > 0:
-        with st.expander("Result Data"):
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        with st.expander("📊 Result Data", expanded=False):
+            key = str(abs(hash((question, len(df)))))
+            render_result_data(df, question, key)
 
 
 # --- gap analysis (Iteration 8) --------------------------------------------- #
