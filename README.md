@@ -252,9 +252,10 @@ it, is there no answer?"* No. Here is what each artifact actually is:
 - **`traces/*.json` are recordings of past runs** for inspection — also not used
   at runtime.
 
-So the agent answers **any** question the data can support, whether or not it
-appears in a JSON file. (The line chart and the conversational follow-ups in the
-demo are examples — none of them are in any ground-truth file.) The two things are
+So the agent can attempt any business question the available data can support,
+whether or not it appears in a JSON file. (The line chart and the conversational
+follow-ups in the demo are examples — none of them are in any ground-truth file.)
+The two things are
 deliberately separate:
 
 - **Open-ended use** — any question → schema discovery → SQL → read-only
